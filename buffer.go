@@ -23,71 +23,71 @@ type Statistics map[string]interface{}
 // where a value of N means there are N runes before the
 // cursor, 0 means start, max(int64) means end.
 type Buffer interface {
-    // Length return no. of runes in buffer.
-    Length() (l int64, err error)
+	// Length return no. of runes in buffer.
+	Length() (l int64, err error)
 
-    // Value returns full content in buffer.
-    Value() []rune
+	// Value returns full content in buffer.
+	Value() []rune
 
-    // Index retrieves the rune at dot, where
-    // dot starts from 0 till length of buffer.
-    // if buffer size is 22
-    // 0 - returns the first rune in buffer.
-    // 21 - returns the last rune in buffer.
-    // 22 - return ok as false.
-    Index(dot int64) (ch rune, ok bool, err error)
+	// Index retrieves the rune at dot, where
+	// dot starts from 0 till length of buffer.
+	// if buffer size is 22
+	// 0 - returns the first rune in buffer.
+	// 21 - returns the last rune in buffer.
+	// 22 - return ok as false.
+	Index(dot int64) (ch rune, ok bool, err error)
 
-    // Concat adds another buffer element adjacent to the
-    // current buffer.
-    Concat(other *Buffer) (buf Buffer, err error)
+	// Concat adds another buffer element adjacent to the
+	// current buffer.
+	Concat(other *Buffer) (buf Buffer, err error)
 
-    // Split this buffer at dot, and return two equivalent buffer
-    // elements, a dot of value N would mean N elements to the
-    // left buffer.
-    Split(dot int64) (left Buffer, right Buffer, err error)
+	// Split this buffer at dot, and return two equivalent buffer
+	// elements, a dot of value N would mean N elements to the
+	// left buffer.
+	Split(dot int64) (left Buffer, right Buffer, err error)
 
-    // Insert addes one or more runes at dot, semantically
-    // pushing the runes at the dot to the right.
-    // `amend` argument is a special case, where inserts
-    // belonging to the same change can mutate the buffer.
-    Insert(dot int64, text []rune, amend bool) (buf Buffer, err error)
+	// Insert addes one or more runes at dot, semantically
+	// pushing the runes at the dot to the right.
+	// `amend` argument is a special case, where inserts
+	// belonging to the same change can mutate the buffer.
+	Insert(dot int64, text []rune, amend bool) (buf Buffer, err error)
 
-    // Delete generates a new buffer by deleting N runes from
-    // the original buffer after dot.
-    Delete(dot int64, N int64) (buf Buffer, err error)
+	// Delete generates a new buffer by deleting N runes from
+	// the original buffer after dot.
+	Delete(dot int64, N int64) (buf Buffer, err error)
 
-    // Substr return a substring of length N after dot
-    // number of runes from buffer.
-    Substr(dot int64, N int64) (val []rune, err error)
+	// Substr return a substring of length N after dot
+	// number of runes from buffer.
+	Substr(dot int64, N int64) (val []rune, err error)
 
-    // Stats return a key,value pair of interesting statistiscs.
-    Stats() (stats Statistics, err error)
+	// Stats return a key,value pair of interesting statistiscs.
+	Stats() (stats Statistics, err error)
 }
 
 type Cmd struct {
-    args []interface{}
-    c    string
-    zrgs []interface{}
+	args []interface{}
+	c    string
+	zrgs []interface{}
 }
 
 // Commands
 const (
-    // insert mode.
-    RuboutChar string = "k"
-    RuboutWord        = "ctrl-w"
-    RuboutLine        = "ctrl-u"
-    // normal mode.
-    DotForward    = "l" // {args{Int}, "l"}
-    DotForwardTok = "w" // {args{Int}, "w"}
-    DotLineUp     = "k" // {args{Int}, "k"}
-    DotGoto       = "j" // {args{Int}, "j"}
-    // ex-command.
-    Ex = "exit"
+	// insert mode.
+	RuboutChar string = "k"
+	RuboutWord        = "ctrl-w"
+	RuboutLine        = "ctrl-u"
+	// normal mode.
+	DotForward    = "l" // {args{Int}, "l"}
+	DotForwardTok = "w" // {args{Int}, "w"}
+	DotLineUp     = "k" // {args{Int}, "k"}
+	DotGoto       = "j" // {args{Int}, "j"}
+	// ex-command.
+	Ex = "exit"
 )
 
 // args and zrgs
 const (
-    BuStart string = "0" // beginning of buffer
-    BuEnd   string = "z" // end of buffer
-    BuAll   string = "h" // full buffer
+	BuStart string = "0" // beginning of buffer
+	BuEnd   string = "z" // end of buffer
+	BuAll   string = "h" // full buffer
 )
