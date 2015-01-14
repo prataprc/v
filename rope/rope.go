@@ -24,13 +24,17 @@ func NewRopebuffer(text []rune, capacity int64) *RopeBuffer {
 	txt := make([]rune, l)
 	copy(txt, text)
 	rb := &RopeBuffer{Text: txt, Weight: l, Len: l, Cap: capacity}
-	return rb.build(capacity)
+	rb, _ = rb.build(capacity)
+	return rb
 }
 
 // NewRopeLevel returns a new level of rope-buffer initialized
 // with left and right.
-func NewRopeLevel(weight, length int64, left, right *RopeBuffer) *RopeBuffer {
-	return &RopeBuffer{Weight: weight, Len: length, Left: left, Right: right}
+func NewRopeLevel(
+	weight, length, capacity int64, left, right *RopeBuffer) *RopeBuffer {
+	return &RopeBuffer{
+		Weight: weight, Len: length, Left: left, Right: right, Cap: capacity,
+	}
 }
 
 // Length implement Buffer{} interface.
@@ -55,25 +59,25 @@ func (rb *RopeBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	} else if dot < 0 || dot > rb.Len {
 		return ch, ok, v.ErrorIndexOutofbound
 	} else if dot == rb.Len {
-		return ch, false, nil
+		return ch, false, v.ErrorIndexOutofbound
 	}
 
 	if rb.isLeaf() {
 		return rb.Text[dot], true, nil
-	} else if dot > rb.Weight {
+	} else if dot >= rb.Weight {
 		return rb.Right.Index(dot - rb.Weight)
 	}
 	return rb.Left.Index(dot)
 }
 
 // Concat implement Buffer{} interface.
-func (rb *RopeBuffer) Concat(right *RopeBuffer) *RopeBuffer {
+func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
 	if rb == nil {
-		return right
+		return right, nil
 	} else if right == nil {
-		return rb
+		return rb, nil
 	}
-	return NewRopeLevel(rb.Len, rb.Len+right.Len, rb, right)
+	return NewRopeLevel(rb.Len, rb.Len+right.Len, rb.Cap, rb, right), nil
 }
 
 // Split implement Buffer{} interface.
@@ -84,7 +88,7 @@ func (rb *RopeBuffer) Split(dot int64) (left, right *RopeBuffer, err error) {
 	} else if dot < 0 || dot > rb.Len {
 		return nil, nil, v.ErrorIndexOutofbound
 	}
-	return rb.split(dot, right)
+	return rb.split(dot, nil)
 }
 
 // Insert implement Buffer{} interface.
@@ -102,7 +106,11 @@ func (rb *RopeBuffer) Insert(
 	if err != nil {
 		return nil, err
 	}
-	return left.Concat(NewRopebuffer(text, rb.Cap)).Concat(right), nil
+	x, err := left.Concat(NewRopebuffer(text, rb.Cap))
+	if err != nil {
+		return nil, err
+	}
+	return x.Concat(right)
 }
 
 // Delete implement Buffer{} interface.
@@ -118,17 +126,22 @@ func (rb *RopeBuffer) Delete(dot int64, n int64) (*RopeBuffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return left.Concat(right), nil
+	return left.Concat(right)
 }
 
 // Substr implement Buffer{} interface.
-func (rb *RopeBuffer) Substr(dot int64, n int64) string {
+func (rb *RopeBuffer) Substr(dot int64, n int64) (string, error) {
 	if rb == nil {
-		return ""
+		return "", nil
+	} else if dot < 0 || dot > rb.Len {
+		return "", v.ErrorIndexOutofbound
+	} else if dot+n > rb.Len {
+		return "", v.ErrorIndexOutofbound
 	}
+
 	acc := make([]rune, n)
 	rb.report(dot, n, acc)
-	return string(acc)
+	return string(acc), nil
 }
 
 // Stats implement Buffer{} interface.
@@ -146,18 +159,28 @@ func (rb *RopeBuffer) isLeaf() bool {
 	return rb.Left == nil
 }
 
-func (rb *RopeBuffer) build(capacity int64) *RopeBuffer {
+func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
 	if rb.isLeaf() {
 		if rb.Len > capacity {
 			left, right, _ := rb.Split(rb.Len / 2)
-			return left.build(capacity).Concat(right.build(capacity))
+			x, err := left.build(capacity)
+			if err != nil {
+				return nil, err
+			}
+			y, err := right.build(capacity)
+			if err != nil {
+				return nil, err
+			}
+			return x.Concat(y)
 		}
 	}
-	return rb
+	return rb, nil
 }
 
 func (rb *RopeBuffer) split(
-	dot int64, right *RopeBuffer) (l, r *RopeBuffer, err error) {
+	dot int64, right *RopeBuffer) (*RopeBuffer, *RopeBuffer, error) {
+
+	var err error
 
 	if dot == rb.Weight { // exact
 		if rb.isLeaf() {
@@ -170,27 +193,38 @@ func (rb *RopeBuffer) split(
 		if err != nil {
 			return nil, nil, err
 		}
-		return rb.Left.Concat(newRight), right, nil
+		left, err := rb.Left.Concat(newRight)
+		if err != nil {
+			return nil, nil, err
+		}
+		return left, right, nil
 
 	}
 	// recurse on the left
 	if rb.isLeaf() { // splitting leaf at index
 		if dot > 0 {
-			l = NewRopebuffer(rb.Text[0:dot], rb.Cap)
+			l := NewRopebuffer(rb.Text[0:dot], rb.Cap)
+			r := NewRopebuffer(rb.Text[dot:len(rb.Text)], rb.Cap)
+			return l, r, nil
 		}
-		r = NewRopebuffer(rb.Text[dot:len(rb.Text)], rb.Cap)
-		return l, r, nil
+		r := NewRopebuffer(rb.Text[dot:len(rb.Text)], rb.Cap)
+		return nil, r, nil
 	}
 	newLeft, right, err := rb.Left.split(dot, right)
 	if err != nil {
 		return nil, nil, err
 	}
-	return newLeft, right.Concat(rb.Right), nil
+	right, err = right.Concat(rb.Right)
+	if err != nil {
+		return nil, nil, err
+	}
+	return newLeft, right, nil
 }
 
 func (rb *RopeBuffer) report(dot int64, n int64, acc []rune) {
 	if dot > rb.Weight { // recurse to right
 		rb.Right.report(dot-rb.Weight, n, acc)
+
 	} else if rb.Weight >= dot+n { // the left branch has enough values
 		if rb.isLeaf() {
 			copy(acc, rb.Text[dot:dot+n])
@@ -199,8 +233,8 @@ func (rb *RopeBuffer) report(dot int64, n int64, acc []rune) {
 		}
 
 	} else { // else split the work
-		rb.Left.report(dot, rb.Weight-dot, acc[:rb.Weight])
-		rb.Right.report(0, dot+n-rb.Weight, acc[rb.Weight:])
+		rb.Left.report(dot, rb.Weight-dot, acc[:rb.Weight-dot])
+		rb.Right.report(0, dot+n-rb.Weight, acc[rb.Weight-dot:])
 	}
 }
 
