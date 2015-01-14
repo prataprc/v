@@ -1,0 +1,23 @@
+(global acclen 1)
+
+s : "[ " commands " ]".
+
+commands : (weigh 0.1) "[" command "]"
+         | (weigh 0.9 0.001) "[" command "], " commands.
+
+command : (weigh 0.1 0.01) insert
+        | (weigh 0.1 0.01) delete
+        | (weigh 0.1 0.01) index
+        | (weigh 0.1 0.01) length
+        | (weigh 0.1 0.01) value
+        | (weigh 0.1 0.01) substr.
+
+insert : "\"insert\", " dot ", \"" text "\"".
+delete : "\"delete\", " dot ", " size.
+index  : "\"index\", " dot.
+length : "\"length\"".
+value  : "\"value\"".
+substr : "\"substr\", " dot ", " size.
+text : (bag "./sample.txt") (inc acclen (len #0)).
+dot : (range 0 $acclen).
+size : (range 0 100).
