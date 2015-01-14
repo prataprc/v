@@ -1,0 +1,3 @@
+[submodule "term"]
+	path = term
+	url = git@github.com:prataprc/termbox-go.git
