@@ -2,15 +2,15 @@
 
 s : "[ " commands " ]".
 
-commands : (weigh 0.1) "[" command "]"
-         | (weigh 0.9 0.001) "[" command "], " commands.
+commands : (weigh 0.01) "[" command "]"
+         | (weigh 0.9 0.0005) "[" command "], " commands.
 
-command : (weigh 0.1 0.01) insert
-        | (weigh 0.1 0.01) delete
-        | (weigh 0.1 0.01) index
-        | (weigh 0.1 0.01) length
-        | (weigh 0.1 0.01) value
-        | (weigh 0.1 0.01) substr.
+command : (weigh 0.1 0.0005) insert
+        | (weigh 0.1 0.0005) delete
+        | (weigh 0.1 0.0005) index
+        | (weigh 0.1 0.0005) length
+        | (weigh 0.1 0.0005) value
+        | (weigh 0.1 0.0005) substr.
 
 insert : "\"insert\", " dot ", \"" text "\"".
 delete : "\"delete\", " dot ", " size.
