@@ -36,10 +36,10 @@ func (lb *LinearBuffer) Value() []rune {
 func (lb *LinearBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	if lb == nil {
 		return ch, false, v.ErrorBufferNil
-	} else if dot < 0 || dot > int64(len(lb.Text)) {
+	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
 		return ch, false, v.ErrorIndexOutofbound
-	} else if dot == int64(len(lb.Text)) {
-		return ch, false, nil
+	} else if dot == l {
+		return ch, false, v.ErrorIndexOutofbound
 	}
 	return lb.Text[dot], true, nil
 }
@@ -48,6 +48,10 @@ func (lb *LinearBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 func (lb *LinearBuffer) Substr(dot int64, n int64) (string, error) {
 	if lb == nil {
 		return "", nil
+	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
+		return "", v.ErrorIndexOutofbound
+	} else if dot+n > l {
+		return "", v.ErrorIndexOutofbound
 	}
 	return string(lb.Text[dot : dot+n]), nil
 }
