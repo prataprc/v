@@ -157,6 +157,7 @@ func (rb *RopeBuffer) InsertIO(dot int64, text []rune) (*RopeBuffer, error) {
 			return rb, err
 		}
 		rb.Left = left
+		rb.Weight += int64(len(text))
 		return rb, nil
 	}
 	right, err := rb.Right.InsertIO(dot-rb.Weight, text)
@@ -201,16 +202,20 @@ func (rb *RopeBuffer) DeleteIO(dot, n int64) (*RopeBuffer, error) {
 			rb.Text = rb.Text[:dot]
 		} else {
 			copy(rb.Text[dot:dot+n], rb.Text[dot+n:])
-			rb.Text = rb.Text[:dot+n]
+			rb.Text = rb.Text[:rb.Len-n]
 		}
-		if len(rb.Text) == 0 {
+		l := int64(len(rb.Text))
+		if l == 0 {
 			return nil, nil
 		}
+		rb.Weight, rb.Len = l, l
+		return rb, nil
 	}
 	if dot < rb.Weight {
 		left, err := rb.Left.DeleteIO(dot, n)
 		if err != nil {
 			return rb, err
+
 		} else if left == nil {
 			right, err := rb.Right.DeleteIO(0, n-rb.Weight)
 			if err != nil {
@@ -218,8 +223,9 @@ func (rb *RopeBuffer) DeleteIO(dot, n int64) (*RopeBuffer, error) {
 			} else if right == nil {
 				return nil, nil
 			}
-			rb.Right = right
+			return right, nil
 		}
+		rb.Weight = rb.Weight - n
 		rb.Left = left
 		return rb, nil
 	}
