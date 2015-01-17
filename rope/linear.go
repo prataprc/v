@@ -81,15 +81,13 @@ func (lb *LinearBuffer) Split(dot int64) (left, right *LinearBuffer, err error) 
 }
 
 // Insert implement Buffer{} interface.
-func (lb *LinearBuffer) Insert(
-	dot int64, text []rune, amend bool) (*LinearBuffer, error) {
-
+func (lb *LinearBuffer) Insert(dot int64, text []rune) (*LinearBuffer, error) {
 	if text == nil {
 		return lb, nil
-
 	} else if lb == nil {
 		return NewLinearBuffer(text), nil
 	}
+
 	left, right, err := lb.Split(dot)
 	if err != nil {
 		return nil, err
@@ -107,8 +105,13 @@ func (lb *LinearBuffer) Insert(
 	return NewLinearBuffer(newlb), nil
 }
 
+// InsertIO implement Buffer{} interface.
+func (lb *LinearBuffer) InsertIO(dot int64, text []rune) (*LinearBuffer, error) {
+	return lb.Insert(dot, text)
+}
+
 // Delete implement Buffer{} interface.
-func (lb *LinearBuffer) Delete(dot int64, n int64) (*LinearBuffer, error) {
+func (lb *LinearBuffer) Delete(dot, n int64) (*LinearBuffer, error) {
 	if lb == nil {
 		return nil, v.ErrorBufferNil
 	} else if dot < 0 || dot > int64(len(lb.Text)-1) {
@@ -120,6 +123,11 @@ func (lb *LinearBuffer) Delete(dot int64, n int64) (*LinearBuffer, error) {
 	copy(lb.Text[dot:], lb.Text[dot+n:])
 	lb = NewLinearBuffer(lb.Text[:l-n])
 	return lb, nil
+}
+
+// DeleteIO implement Buffer{} interface.
+func (lb *LinearBuffer) DeleteIO(dot, n int64) (*LinearBuffer, error) {
+	return lb.Delete(dot, n)
 }
 
 // Stats implement Buffer{} interface.

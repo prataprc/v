@@ -61,37 +61,37 @@ func TestRopeDicing(t *testing.T) {
 func TestRopeInsertBasic(t *testing.T) {
 	rb := NewRopebuffer([]rune("hello world"), 2)
 	// before begin
-	if _, err := rb.Insert(-1, []rune("a"), true); err != v.ErrorIndexOutofbound {
+	if _, err := rb.Insert(-1, []rune("a")); err != v.ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("hello world")); err != nil {
 		t.Fatal(err)
 		// at begin
-	} else if rb, err = rb.Insert(0, []rune("1"), true); err != nil {
+	} else if rb, err = rb.Insert(0, []rune("1")); err != nil {
 		t.Fatal(err)
 	} else if err = validateRead(rb, []rune("1hello world")); err != nil {
 		t.Fatal(err)
 		// before middle
-	} else if rb, err = rb.Insert(5, []rune("2"), true); err != nil {
+	} else if rb, err = rb.Insert(5, []rune("2")); err != nil {
 		t.Fatal(err)
 	} else if err = validateRead(rb, []rune("1hell2o world")); err != nil {
 		t.Fatal(err)
 		// after middle
-	} else if rb, err = rb.Insert(7, []rune("3"), true); err != nil {
+	} else if rb, err = rb.Insert(7, []rune("3")); err != nil {
 		t.Fatal(err)
 	} else if err = validateRead(rb, []rune("1hell2o3 world")); err != nil {
 		t.Fatal(err)
 		// at middle
-	} else if rb, err = rb.Insert(8, []rune("4"), true); err != nil {
+	} else if rb, err = rb.Insert(8, []rune("4")); err != nil {
 		t.Fatal(err)
 	} else if err = validateRead(rb, []rune("1hell2o34 world")); err != nil {
 		t.Fatal(err)
 		// at end
-	} else if rb, err = rb.Insert(15, []rune("5"), true); err != nil {
+	} else if rb, err = rb.Insert(15, []rune("5")); err != nil {
 		t.Fatal(err)
 	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
 		t.Fatal(err)
 		// after end
-	} else if _, err = rb.Insert(17, []rune("a"), true); err != v.ErrorIndexOutofbound {
+	} else if _, err = rb.Insert(17, []rune("a")); err != v.ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
 		t.Fatal(err)
@@ -108,11 +108,11 @@ func TestRopeInsertLot(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		dot := int64(rand.Intn(lenrb))
 		for _, insVal := range insVals {
-			rb, err = rb.Insert(dot, insVal, true)
+			rb, err = rb.Insert(dot, insVal)
 			if err != nil {
 				t.Fatal(err)
 			}
-			lb, err = lb.Insert(dot, insVal, true)
+			lb, err = lb.Insert(dot, insVal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -172,11 +172,11 @@ func TestRopePersistence(t *testing.T) {
 	lb := NewLinearBuffer(rb.Value())
 	history := map[*RopeBuffer]bool{rb: true}
 	for i := 0; i < 100; i++ {
-		rb, err = rb.Insert(int64(i), []rune("abc"), true)
+		rb, err = rb.Insert(int64(i), []rune("abc"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		lb, _ = lb.Insert(int64(i), []rune("abc"), true)
+		lb, _ = lb.Insert(int64(i), []rune("abc"))
 		if _, ok := history[rb]; ok {
 			t.Fatal("persistence ref failed %v", rb.Value())
 		}
@@ -285,7 +285,7 @@ func BenchmarkRopeInsert(b *testing.B) {
 	runes = []rune(s)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rb.Insert(1024*512, runes, true)
+		rb.Insert(1024*512, runes)
 	}
 }
 

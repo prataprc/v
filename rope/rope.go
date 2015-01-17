@@ -119,45 +119,116 @@ func (rb *RopeBuffer) Split(dot int64) (left, right *RopeBuffer, err error) {
 }
 
 // Insert implement Buffer{} interface.
-func (rb *RopeBuffer) Insert(
-	dot int64, text []rune, amend bool) (*RopeBuffer, error) {
-
-	// TODO: Implement amend.
+func (rb *RopeBuffer) Insert(dot int64, text []rune) (*RopeBuffer, error) {
 	if text == nil {
 		return rb, nil
-
 	} else if rb == nil {
 		return NewRopebuffer(text, rb.Cap), nil
+	} else if dot < 0 || dot > rb.Len {
+		return rb, v.ErrorIndexOutofbound
 	}
 	left, right, err := rb.Split(dot)
 	if err != nil {
-		return nil, err
+		return rb, err
 	}
 	x, err := left.Concat(NewRopebuffer(text, rb.Cap))
 	if err != nil {
-		return nil, err
+		return rb, err
 	}
 	return x.Concat(right)
 }
 
+// InsertIO implement Buffer{} interface.
+func (rb *RopeBuffer) InsertIO(dot int64, text []rune) (*RopeBuffer, error) {
+	if text == nil {
+		return rb, nil
+	} else if rb == nil {
+		return NewRopebuffer(text, rb.Cap), nil
+	} else if dot < 0 || dot > rb.Len {
+		return rb, v.ErrorIndexOutofbound
+	}
+	if rb.isLeaf() { // make inplace modification
+		text := rb.io(rb.Text, text, dot)
+		return NewRopebuffer(text, rb.Cap), nil
+	}
+	if dot <= rb.Weight {
+		left, err := rb.Left.InsertIO(dot, text)
+		if err != nil {
+			return rb, err
+		}
+		rb.Left = left
+		return rb, nil
+	}
+	right, err := rb.Right.InsertIO(dot-rb.Weight, text)
+	if err != nil {
+		return rb, err
+	}
+	rb.Right = right
+	return rb, nil
+}
+
 // Delete implement Buffer{} interface.
-func (rb *RopeBuffer) Delete(dot int64, n int64) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Delete(dot, n int64) (*RopeBuffer, error) {
 	if rb == nil {
-		return nil, v.ErrorBufferNil
+		return rb, v.ErrorBufferNil
 	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
-		return nil, v.ErrorIndexOutofbound
+		return rb, v.ErrorIndexOutofbound
 	} else if end := dot + n; end < 0 || end > int64(l) {
-		return nil, v.ErrorIndexOutofbound
+		return rb, v.ErrorIndexOutofbound
 	}
 	left, forRight, err := rb.Split(dot)
 	if err != nil {
-		return nil, err
+		return rb, err
 	}
 	_, right, err := forRight.Split(n)
 	if err != nil {
-		return nil, err
+		return rb, err
 	}
 	return left.Concat(right)
+}
+
+// DeleteIO implement Buffer{} interface.
+func (rb *RopeBuffer) DeleteIO(dot, n int64) (*RopeBuffer, error) {
+	if rb == nil {
+		return rb, v.ErrorBufferNil
+	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
+		return rb, v.ErrorIndexOutofbound
+	} else if end := dot + n; end < 0 || end > int64(l) {
+		return rb, v.ErrorIndexOutofbound
+	}
+	if rb.isLeaf() {
+		if dot+n > rb.Len {
+			rb.Text = rb.Text[:dot]
+		} else {
+			copy(rb.Text[dot:dot+n], rb.Text[dot+n:])
+			rb.Text = rb.Text[:dot+n]
+		}
+		if len(rb.Text) == 0 {
+			return nil, nil
+		}
+	}
+	if dot < rb.Weight {
+		left, err := rb.Left.DeleteIO(dot, n)
+		if err != nil {
+			return rb, err
+		} else if left == nil {
+			right, err := rb.Right.DeleteIO(0, n-rb.Weight)
+			if err != nil {
+				return rb, err
+			} else if right == nil {
+				return nil, nil
+			}
+			rb.Right = right
+		}
+		rb.Left = left
+		return rb, nil
+	}
+	right, err := rb.Right.DeleteIO(dot-rb.Weight, n)
+	if err != nil {
+		return rb, err
+	}
+	rb.Right = right
+	return rb, nil
 }
 
 // Stats implement Buffer{} interface.
@@ -173,6 +244,15 @@ func (rb *RopeBuffer) Stats() rbStats {
 
 func (rb *RopeBuffer) isLeaf() bool {
 	return rb.Left == nil
+}
+
+func (rb *RopeBuffer) io(src, text []rune, dot int64) []rune {
+	l := int64(len(text))
+	newtext := make([]rune, len(text)+len(src))
+	copy(newtext[:dot], src[:dot])
+	copy(newtext[dot:l], text)
+	copy(newtext[dot+l:], src[dot:])
+	return newtext
 }
 
 func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {

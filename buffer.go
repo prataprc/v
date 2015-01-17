@@ -54,43 +54,23 @@ type Buffer interface {
 	Split(dot int64) (left Buffer, right Buffer, err error)
 
 	// Insert addes one or more runes at dot, semantically
-	// pushing the runes at the dot to the right.
-	// `amend` argument is a special case, where inserts
-	// belonging to the same change can mutate the buffer.
-	Insert(dot int64, text []rune, amend bool) (buf Buffer, err error)
+	// pushing the runes at the dot to the right. Returns a
+	// new reference without creating side-effects.
+	Insert(dot int64, text []rune) (buf Buffer, err error)
 
 	// Delete generates a new buffer by deleting N runes from
-	// the original buffer after dot.
+	// the original buffer after dot. Returns a new reference
+	// without creating side-effects.
 	Delete(dot int64, N int64) (buf Buffer, err error)
+
+	// InsertIO same as Insert() except that it modifies the
+	// buffer and returns the same buffer reference.
+	InsertIO(dot int64, text []rune) (buf Buffer, err error)
+
+	// DeleteIO same as Delete() except that it modifies the
+	// buffer and returns the same buffer reference.
+	DeleteIO(dot int64, N int64) (buf Buffer, err error)
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)
 }
-
-type Cmd struct {
-	args []interface{}
-	c    string
-	zrgs []interface{}
-}
-
-// Commands
-const (
-	// insert mode.
-	RuboutChar string = "k"
-	RuboutWord        = "ctrl-w"
-	RuboutLine        = "ctrl-u"
-	// normal mode.
-	DotForward    = "l" // {args{Int}, "l"}
-	DotForwardTok = "w" // {args{Int}, "w"}
-	DotLineUp     = "k" // {args{Int}, "k"}
-	DotGoto       = "j" // {args{Int}, "j"}
-	// ex-command.
-	Ex = "exit"
-)
-
-// args and zrgs
-const (
-	BuStart string = "0" // beginning of buffer
-	BuEnd   string = "z" // end of buffer
-	BuAll   string = "h" // full buffer
-)
