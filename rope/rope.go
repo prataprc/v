@@ -70,6 +70,21 @@ func (rb *RopeBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	return rb.Left.Index(dot)
 }
 
+// Substr implement Buffer{} interface.
+func (rb *RopeBuffer) Substr(dot int64, n int64) (string, error) {
+	if rb == nil {
+		return "", nil
+	} else if dot < 0 || dot > rb.Len {
+		return "", v.ErrorIndexOutofbound
+	} else if dot+n > rb.Len {
+		return "", v.ErrorIndexOutofbound
+	}
+
+	acc := make([]rune, n)
+	rb.report(dot, n, acc)
+	return string(acc), nil
+}
+
 // Concat implement Buffer{} interface.
 func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
 	if rb == nil {
@@ -117,6 +132,10 @@ func (rb *RopeBuffer) Insert(
 func (rb *RopeBuffer) Delete(dot int64, n int64) (*RopeBuffer, error) {
 	if rb == nil {
 		return nil, v.ErrorBufferNil
+	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
+		return nil, v.ErrorIndexOutofbound
+	} else if end := dot + n; end < 0 || end > int64(l) {
+		return nil, v.ErrorIndexOutofbound
 	}
 	left, forRight, err := rb.Split(dot)
 	if err != nil {
@@ -127,21 +146,6 @@ func (rb *RopeBuffer) Delete(dot int64, n int64) (*RopeBuffer, error) {
 		return nil, err
 	}
 	return left.Concat(right)
-}
-
-// Substr implement Buffer{} interface.
-func (rb *RopeBuffer) Substr(dot int64, n int64) (string, error) {
-	if rb == nil {
-		return "", nil
-	} else if dot < 0 || dot > rb.Len {
-		return "", v.ErrorIndexOutofbound
-	} else if dot+n > rb.Len {
-		return "", v.ErrorIndexOutofbound
-	}
-
-	acc := make([]rune, n)
-	rb.report(dot, n, acc)
-	return string(acc), nil
 }
 
 // Stats implement Buffer{} interface.

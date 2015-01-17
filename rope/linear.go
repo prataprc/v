@@ -41,6 +41,14 @@ func (lb LinearBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	return lb[dot], true, nil
 }
 
+// Substr implement Buffer{} interface.
+func (lb LinearBuffer) Substr(dot int64, n int64) (string, error) {
+	if lb == nil {
+		return "", nil
+	}
+	return string(lb[dot : dot+n]), nil
+}
+
 // Concat implement Buffer{} interface.
 func (lb LinearBuffer) Concat(right LinearBuffer) (LinearBuffer, error) {
 	if lb == nil {
@@ -93,19 +101,15 @@ func (lb LinearBuffer) Insert(
 func (lb LinearBuffer) Delete(dot int64, n int64) (LinearBuffer, error) {
 	if lb == nil {
 		return nil, v.ErrorBufferNil
+	} else if dot < 0 || dot > int64(len(lb)-1) {
+		return nil, v.ErrorIndexOutofbound
+	} else if end := dot + n; end < 0 || end > int64(len(lb)) {
+		return nil, v.ErrorIndexOutofbound
 	}
 	l := int64(len(lb))
 	copy(lb[dot:], lb[dot+n:])
 	lb = lb[:l-n]
 	return lb, nil
-}
-
-// Substr implement Buffer{} interface.
-func (lb LinearBuffer) Substr(dot int64, n int64) (string, error) {
-	if lb == nil {
-		return "", nil
-	}
-	return string(lb[dot : dot+n]), nil
 }
 
 // Stats implement Buffer{} interface.

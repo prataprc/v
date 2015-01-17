@@ -5,6 +5,8 @@ import "io/ioutil"
 import "fmt"
 import "math/rand"
 
+import "github.com/prataprc/v"
+
 var _ = fmt.Sprintf("dummy")
 
 var testRopeBufferCapacity = int64(10 * 1024)
@@ -37,7 +39,7 @@ func TestRopeSample1MB(t *testing.T) {
 
 func TestRopeIndex(t *testing.T) {
 	rb := NewRopebuffer([]rune("hello world"), 2)
-	if err := validateRead(rb); err != nil {
+	if err := validateRead(rb, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -56,7 +58,47 @@ func TestRopeDicing(t *testing.T) {
 	}
 }
 
-func TestRopeInsert(t *testing.T) {
+func TestRopeInsertBasic(t *testing.T) {
+	rb := NewRopebuffer([]rune("hello world"), 2)
+	// before begin
+	if _, err := rb.Insert(-1, []rune("a"), true); err != v.ErrorIndexOutofbound {
+		t.Fatalf("expecting err ErrorIndexOutofbound")
+	} else if err = validateRead(rb, []rune("hello world")); err != nil {
+		t.Fatal(err)
+		// at begin
+	} else if rb, err = rb.Insert(0, []rune("1"), true); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("1hello world")); err != nil {
+		t.Fatal(err)
+		// before middle
+	} else if rb, err = rb.Insert(5, []rune("2"), true); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("1hell2o world")); err != nil {
+		t.Fatal(err)
+		// after middle
+	} else if rb, err = rb.Insert(7, []rune("3"), true); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("1hell2o3 world")); err != nil {
+		t.Fatal(err)
+		// at middle
+	} else if rb, err = rb.Insert(8, []rune("4"), true); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("1hell2o34 world")); err != nil {
+		t.Fatal(err)
+		// at end
+	} else if rb, err = rb.Insert(15, []rune("5"), true); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
+		t.Fatal(err)
+		// after end
+	} else if _, err = rb.Insert(17, []rune("a"), true); err != v.ErrorIndexOutofbound {
+		t.Fatalf("expecting err ErrorIndexOutofbound")
+	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRopeInsertLot(t *testing.T) {
 	var err error
 
 	rb := NewRopebuffer([]rune("hello world"), 2)
@@ -74,13 +116,53 @@ func TestRopeInsert(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = validateRead(rb); err != nil {
+			if err = validateRead(rb, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err = validateDicing(rb); err != nil {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+func TestRopeDeleteBasic(t *testing.T) {
+	rb := NewRopebuffer([]rune("hello world"), 2)
+	// before begin
+	if _, err := rb.Delete(-1, 0); err != v.ErrorIndexOutofbound {
+		t.Fatalf("expecting err ErrorIndexOutofbound")
+	} else if err = validateRead(rb, []rune("hello world")); err != nil {
+		t.Fatal(err)
+		// at begin
+	} else if rb, err = rb.Delete(0, 1); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("ello world")); err != nil {
+		t.Fatal(err)
+		// before middle
+	} else if rb, err = rb.Delete(1, 2); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("eo world")); err != nil {
+		t.Fatal(err)
+		// after middle
+	} else if rb, err = rb.Delete(2, 3); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("eorld")); err != nil {
+		t.Fatal(err)
+		// at middle
+	} else if _, err = rb.Delete(3, 4); err != v.ErrorIndexOutofbound {
+		t.Fatalf("expecting err ErrorIndexOutofbound")
+	} else if err = validateRead(rb, []rune("eorld")); err != nil {
+		t.Fatal(err)
+		// at end
+	} else if rb, err = rb.Delete(2, 3); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("eo")); err != nil {
+		t.Fatal(err)
+		// after end
+	} else if _, err = rb.Delete(1, 1); err != nil {
+		t.Fatal(err)
+	} else if err = validateRead(rb, []rune("eo")); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -232,9 +314,54 @@ func validateRopeBuild(t *testing.T, stats map[string]interface{}) int64 {
 	return length
 }
 
-func validateRead(rb *RopeBuffer) error {
+func validateRead(rb *RopeBuffer, ref []rune) error {
+	if ref != nil {
+		// verify length
+		if y, err := rb.Length(); err != nil {
+			return err
+		} else if int64(len(ref)) != y {
+			return fmt.Errorf("expecting length %d, got %d", len(ref), y)
+		}
+		// verify value
+		if x, y := string(rb.Value()), string(ref); x != y {
+			return fmt.Errorf("expecting value %q, got %q", x, y)
+		}
+		// verify index
+		for i, x := range ref {
+			if y, ok, err := rb.Index(int64(i)); err != nil {
+				return err
+			} else if !ok {
+				return fmt.Errorf("expecting rune at %d for %q", i, string(ref))
+			} else if x != y {
+				return fmt.Errorf("expecting %v, got %v at %d", x, y, i)
+			}
+		}
+		// out of bound index
+		if _, _, err := rb.Index(-1); err != v.ErrorIndexOutofbound {
+			return fmt.Errorf("expecting v.ErrorIndexOutofbound at -1")
+		}
+		// out of bound index
+		_, _, err := rb.Index(int64(len(ref)))
+		if err != v.ErrorIndexOutofbound {
+			return fmt.Errorf("expecting v.ErrorIndexOutofbound at %d", len(ref))
+		}
+		// verify substr
+		for dot := 0; dot < len(ref); dot++ {
+			for n := 0; n < len(ref)-dot; n++ {
+				s, err := rb.Substr(int64(dot), int64(n))
+				if err != nil {
+					return err
+				}
+				if string(s) != string(ref[dot:dot+n]) {
+					msg := "expecting %q, got %q"
+					return fmt.Errorf(msg, string(s), string(ref[dot:n]))
+				}
+			}
+		}
+	}
+
 	lb := NewLinearBuffer(rb.Value())
-	ref := lb.Value()
+	ref = lb.Value()
 	if x, y := string(rb.Value()), string(ref); x != y {
 		return fmt.Errorf("mismatch in value %q, got %q", x, y)
 	}
@@ -281,7 +408,7 @@ func validateDicing(rbRef *RopeBuffer) error {
 			x, y := string(rbLeft.Value()), string(rbRight.Value())
 			fmt.Errorf("failed concating %q and %q: %v", x, y, err)
 		}
-		if err := validateRead(rb); err != nil {
+		if err := validateRead(rb, nil); err != nil {
 			fmt.Errorf("validateRead() %q at %d: %v", string(x), dot, err)
 		}
 	}
