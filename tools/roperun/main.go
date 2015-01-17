@@ -52,6 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	stats := make(map[string]int64)
 	for options.count > 0 {
 		// compile
 		root, _ := monster.Y(parsec.NewScanner(text))
@@ -65,36 +66,46 @@ func main() {
 		// evaluate
 		scope = scope.ApplyGlobalForms()
 		val := monster.EvalForms("root", scope, nterms["s"])
-		lb, rb, err = testCommands(val.(string), lb, rb)
+		lb, rb, stats, err = testCommands(val.(string), lb, rb, stats)
 		if err != nil {
 			log.Fatalf("seed: %v error: %v\n", options.seed, err)
 		}
 		options.count--
 	}
+	fmt.Println(stats)
 }
 
-func testCommands(s string,
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+func testCommands(
+	s string,
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer,
+	stats map[string]int64) (*ds.LinearBuffer, *ds.RopeBuffer, map[string]int64, error) {
 
 	var cmds []interface{}
 
 	err := json.Unmarshal([]byte(s), &cmds)
 	if err != nil {
-		return lb, rb, err
+		return lb, rb, stats, err
 	}
 	for _, cmd := range cmds {
+		statkey := cmd.([]interface{})[0].(string)
+		val, ok := stats[statkey]
+		if !ok {
+			val = 0
+		}
 		lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
 		if err != nil {
-			return lb, rb, err
+			return lb, rb, stats, err
 		}
+		stats[statkey] = val + 1
 	}
-	return lb, rb, nil
+	return lb, rb, stats, nil
 }
 
-func testCommand(cmd []interface{},
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+func testCommand(
+	cmd []interface{},
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
 	var err error
 	switch cmd[0] {
@@ -117,12 +128,13 @@ func testCommand(cmd []interface{},
 	return lb, rb, err
 }
 
-func testInsert(dot int64, text []rune,
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+func testInsert(
+	dot int64, text []rune,
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-	lb1, err1 := lb.Insert(dot, text, true)
-	rb1, err2 := rb.Insert(dot, text, true)
+	lb1, err1 := lb.Insert(dot, text)
+	rb1, err2 := rb.Insert(dot, text)
 	if err1 != err2 {
 		return nil, nil, fmt.Errorf("mismatch in err %s %s", err1, err2)
 	} else if err1 != nil {
@@ -134,9 +146,10 @@ func testInsert(dot int64, text []rune,
 	return lb1, rb1, nil
 }
 
-func testDelete(dot, size int64,
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+func testDelete(
+	dot, size int64,
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
 	lb1, err1 := lb.Delete(dot, size)
 	rb1, err2 := rb.Delete(dot, size)
@@ -151,32 +164,59 @@ func testDelete(dot, size int64,
 	return lb1, rb1, nil
 }
 
-func testIndex(dot int64,
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+func testIndex(
+	dot int64,
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
+	ch1, ok1, err1 := lb.Index(dot)
+	ch2, ok2, err2 := rb.Index(dot)
+	if err1 != err2 {
+		return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+	} else if ok1 != ok2 {
+		return nil, nil, fmt.Errorf("mismatch in ok %v, %v", ok1, ok2)
+	} else if ch1 != ch2 {
+		return nil, nil, fmt.Errorf("mismatch in ch %v, %v", ch1, ch2)
+	}
 	return lb, rb, nil
 }
 
 func testLength(
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
+	l1, err1 := lb.Length()
+	l2, err2 := rb.Length()
+	if err1 != err2 {
+		return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+	} else if l1 != l2 {
+		return nil, nil, fmt.Errorf("mismatch in len %v, %v", l1, l2)
+	}
 	return lb, rb, nil
 }
 
 func testValue(
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
+	if x, y := string(lb.Value()), string(rb.Value()); x != y {
+		return nil, nil, fmt.Errorf("mismatch in value %v, %v", x, y)
+	}
 	return lb, rb, nil
 }
 
 func testSubstr(
 	dot,
 	size int64,
-	lb ds.LinearBuffer,
-	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
+	lb *ds.LinearBuffer,
+	rb *ds.RopeBuffer) (*ds.LinearBuffer, *ds.RopeBuffer, error) {
 
+	s1, err1 := lb.Substr(dot, size)
+	s2, err2 := rb.Substr(dot, size)
+	if err1 != err2 {
+		return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+	} else if s1 != s2 {
+		return nil, nil, fmt.Errorf("mismatch in substr %v, %v", s1, s2)
+	}
 	return lb, rb, nil
 }
