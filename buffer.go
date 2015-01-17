@@ -37,6 +37,10 @@ type Buffer interface {
 	// 22 - return ok as false.
 	Index(dot int64) (ch rune, ok bool, err error)
 
+	// Substr return a substring of length N after dot
+	// number of runes from buffer.
+	Substr(dot int64, N int64) (val []rune, err error)
+
 	// Concat adds another buffer element adjacent to the
 	// current buffer.
 	Concat(other *Buffer) (buf Buffer, err error)
@@ -55,10 +59,6 @@ type Buffer interface {
 	// Delete generates a new buffer by deleting N runes from
 	// the original buffer after dot.
 	Delete(dot int64, N int64) (buf Buffer, err error)
-
-	// Substr return a substring of length N after dot
-	// number of runes from buffer.
-	Substr(dot int64, N int64) (val []rune, err error)
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)

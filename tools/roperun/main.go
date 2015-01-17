@@ -1,142 +1,182 @@
 package main
 
 import "io/ioutil"
+import "flag"
 import "encoding/json"
 import "fmt"
 import "log"
+import "os"
 import "time"
+
 import "github.com/prataprc/monster"
 import "github.com/prataprc/goparsec"
 import monstc "github.com/prataprc/monster/common"
-import "github.com/prataprc/v"
+import ds "github.com/prataprc/v/rope"
 
-var options {
-    prodfile string
-    bagdir   string
-    seed     int
+var options struct {
+	prodfile string
+	bagdir   string
+	seed     uint64
+	count    uint64
 }
 
 func argParse() {
-    prodfile := "../../testdata/rope_test.prod"
-    bagdir := "../../testdata"
-    seed := uint64(time.Now().UnixNano())
+	seed := uint64(time.Now().UnixNano())
 
-    flag.StringVar(&options.prodfile, "prodfile", prodfile,
-        "monster production file to generate commands")
-    flag.StringVar(&options.bagdir, "bagdir", bagdir,
-        "monster bag dir containing sample texts")
-    flag.IntVar(&options.seed, "seed", seed,
-        "seed to monster")
+	flag.StringVar(&options.prodfile, "prodfile", "",
+		"monster production file to generate commands")
+	flag.StringVar(&options.bagdir, "bagdir", "",
+		"monster bag dir containing sample texts")
+	flag.Uint64Var(&options.seed, "seed", seed,
+		"seed to monster")
+	flag.Uint64Var(&options.count, "count", 1,
+		"loop count to run monster")
+
+	flag.Parse()
+
+	if options.prodfile == "" {
+		usage()
+		os.Exit(1)
+	}
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "Usage : <prog> [OPTIONS] \n")
+	flag.PrintDefaults()
 }
 
 func main() {
-    // read production-file
-    text, err := ioutil.ReadFile(options.prodfile)
-    if err != nil {
-        log.Fatal(err)
-    }
-    // compile
-    root, _ := monster.Y(parsec.NewScanner(text))
-    scope := root.(monstc.Scope)
-    nterms := scope["_nonterminals"].(monstc.NTForms)
-    scope = monster.BuildContext(scope, options.seed, options.bagdir)
-    scope["_prodfile"] = options.prodfile
+	argParse()
+	// read production-file
+	text, err := ioutil.ReadFile(options.prodfile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for options.count > 0 {
+		// compile
+		root, _ := monster.Y(parsec.NewScanner(text))
+		scope := root.(monstc.Scope)
+		nterms := scope["_nonterminals"].(monstc.NTForms)
+		scope = monster.BuildContext(scope, options.seed, options.bagdir)
+		scope["_prodfile"] = options.prodfile
 
-    lb := rope.NewLinearBuffer([]rune(""))
-    rb := rope.NewRopebuffer([]rune(""), rope.RopeBufferCapacity)
-    // evaluate
-    scope = scope.ApplyGlobalForms()
-    val := monster.EvalForms("root", scope, nterms["s"])
-    lb, rb, err = testCommands(val.(string), lb, rb)
-    if err != nil {
-        log.Fatalf("seed: %v error: %v\n", options.seed, err)
-    }
+		lb := ds.NewLinearBuffer([]rune(""))
+		rb := ds.NewRopebuffer([]rune(""), ds.RopeBufferCapacity)
+		// evaluate
+		scope = scope.ApplyGlobalForms()
+		val := monster.EvalForms("root", scope, nterms["s"])
+		lb, rb, err = testCommands(val.(string), lb, rb)
+		if err != nil {
+			log.Fatalf("seed: %v error: %v\n", options.seed, err)
+		}
+		options.count--
+	}
 }
 
 func testCommands(s string,
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    var cmds []interface{}
+	var cmds []interface{}
 
-    err := json.Unmarshal([]byte(s), &cmds)
-    if err != nil {
-        return lb, rb, err
-    }
-    for _, cmd := range cmds {
-        lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
-        if err != nil {
-            return lb, rb, err
-        }
-    }
-    return lb, rb, nil
+	err := json.Unmarshal([]byte(s), &cmds)
+	if err != nil {
+		return lb, rb, err
+	}
+	for _, cmd := range cmds {
+		lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
+		if err != nil {
+			return lb, rb, err
+		}
+	}
+	return lb, rb, nil
 }
 
 func testCommand(cmd []interface{},
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    var err error
-    switch cmd[0] {
-    case "insert":
-        lb, rb, err = testInsert(
-            int64(cmd[1].(float64)), []rune(cmd[2].(string)), lb, rb)
-    case "delete":
-        lb, rb, err = testDelete(
-            int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
-    case "index":
-        lb, rb, err = testIndex(int64(cmd[1].(float64)), lb, rb)
-    case "length":
-        lb, rb, err = testLength(lb, rb)
-    case "value":
-        lb, rb, err = testValue(lb, rb)
-    case "substr":
-        lb, rb, err = testSubstr(
-            int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
-    }
-    return lb, rb, err
+	var err error
+	switch cmd[0] {
+	case "insert":
+		lb, rb, err = testInsert(
+			int64(cmd[1].(float64)), []rune(cmd[2].(string)), lb, rb)
+	case "delete":
+		lb, rb, err = testDelete(
+			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
+	case "index":
+		lb, rb, err = testIndex(int64(cmd[1].(float64)), lb, rb)
+	case "length":
+		lb, rb, err = testLength(lb, rb)
+	case "value":
+		lb, rb, err = testValue(lb, rb)
+	case "substr":
+		lb, rb, err = testSubstr(
+			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
+	}
+	return lb, rb, err
 }
 
 func testInsert(dot int64, text []rune,
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    lb = lb.Insert(dot, text, true)
-    rb = rb.Insert(dot, text, true)
-    if x, y := string(lb.Value()), string(rb.Value()); x != y {
-        return lb, rb, fmt.Errorf("mismatch in input %s : %s", x, y)
-    }
-    return lb, rb, nil
+	lb1, err1 := lb.Insert(dot, text, true)
+	rb1, err2 := rb.Insert(dot, text, true)
+	if err1 != err2 {
+		return nil, nil, fmt.Errorf("mismatch in err %s %s", err1, err2)
+	} else if err1 != nil {
+		return lb, rb, nil
+	}
+	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
+		return lb1, rb1, fmt.Errorf("mismatch in input %s : %s", x, y)
+	}
+	return lb1, rb1, nil
 }
 
 func testDelete(dot, size int64,
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    //lb = lb.Delete(dot, size)
-    //rb = rb.Delete(dot, size)
-    //if x, y := string(lb.Value()), string(rb.Value()); x != y {
-    //    return lb, rb, fmt.Errorf("mismatch in input %s : %s", x, y)
-    //}
-    return lb, rb, nil
+	lb1, err1 := lb.Delete(dot, size)
+	rb1, err2 := rb.Delete(dot, size)
+	if err1 != err2 {
+		return nil, nil, fmt.Errorf("mismatch in err %s %s", err1, err2)
+	} else if err1 != nil {
+		return lb, rb, nil
+	}
+	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
+		return lb1, rb1, fmt.Errorf("mismatch in input %s : %s", x, y)
+	}
+	return lb1, rb1, nil
 }
 
 func testIndex(dot int64,
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    return lb, rb, nil
+	return lb, rb, nil
 }
 
 func testLength(
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    return lb, rb, nil
+	return lb, rb, nil
 }
 
 func testValue(
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    return lb, rb, nil
+	return lb, rb, nil
 }
 
-func testSubstr(dot, size int64,
-    lb LinearBuffer, rb *RopeBuffer) (LinearBuffer, *RopeBuffer, error) {
+func testSubstr(
+	dot,
+	size int64,
+	lb ds.LinearBuffer,
+	rb *ds.RopeBuffer) (ds.LinearBuffer, *ds.RopeBuffer, error) {
 
-    return lb, rb, nil
+	return lb, rb, nil
 }
