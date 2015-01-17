@@ -166,6 +166,33 @@ func TestRopeDeleteBasic(t *testing.T) {
 	}
 }
 
+func TestRopePersistence(t *testing.T) {
+	var err error
+	rb := NewRopebuffer([]rune("hello world"), 2)
+	lb := NewLinearBuffer(rb.Value())
+	history := map[*RopeBuffer]bool{rb: true}
+	for i := 0; i < 100; i++ {
+		rb, err = rb.Insert(int64(i), []rune("abc"), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lb, _ = lb.Insert(int64(i), []rune("abc"), true)
+		if _, ok := history[rb]; ok {
+			t.Fatal("persistence ref failed %v", rb.Value())
+		}
+		val := string(rb.Value())
+		for oldrb := range history {
+			if string(oldrb.Value()) == val {
+				t.Fatal("persistence value failed %v", val)
+			}
+		}
+		history[rb] = true
+		if err := validateRead(rb, lb.Value()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkRopeSample8(b *testing.B) {
 	data, err := ioutil.ReadFile("../testdata/sample.txt")
 	if err != nil {

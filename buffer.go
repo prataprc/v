@@ -23,6 +23,9 @@ type Statistics map[string]interface{}
 // where a value of N means there are N runes before the
 // cursor, 0 means start, max(int64) means end.
 type Buffer interface {
+	// Cursor return current cursor position within buffer.
+	Cursor() int64
+
 	// Length return no. of runes in buffer.
 	Length() (l int64, err error)
 
