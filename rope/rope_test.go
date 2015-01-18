@@ -3,6 +3,7 @@ package rope
 import "testing"
 import "io/ioutil"
 import "fmt"
+import "log"
 import "math/rand"
 
 import "github.com/prataprc/v"
@@ -10,29 +11,30 @@ import "github.com/prataprc/v"
 var _ = fmt.Sprintf("dummy")
 
 var testRopeBufferCapacity = int64(10 * 1024)
+var sampleData []byte
+
+func init() {
+	var err error
+	sampleData, err = ioutil.ReadFile("../testdata/sample.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+}
 
 func TestRopeSample256(t *testing.T) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rb := NewRopebuffer([]rune(string(data)), 256)
+	rb := NewRopebuffer([]rune(string(sampleData)), 256)
 	stats := rb.Stats()
 	length := validateRopeBuild(t, stats)
-	if l := int64(len(data)); length != l {
+	if l := int64(len(sampleData)); length != l {
 		t.Fatalf("mismatch in length %v, got %v", length, l)
 	}
 }
 
 func TestRopeSample1MB(t *testing.T) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rb := NewRopebuffer([]rune(string(data)), 1024*1024)
+	rb := NewRopebuffer([]rune(string(sampleData)), 1024*1024)
 	stats := rb.Stats()
 	length := validateRopeBuild(t, stats)
-	if l := int64(len(data)); length != l {
+	if l := int64(len(sampleData)); length != l {
 		t.Fatalf("mismatch in length %v, got %v", length, l)
 	}
 }
@@ -98,7 +100,7 @@ func TestRopeInsertBasic(t *testing.T) {
 	}
 }
 
-func TestRopeInsertLot(t *testing.T) {
+func TestRopeInsertMany(t *testing.T) {
 	var err error
 
 	rb := NewRopebuffer([]rune("hello world"), 2)
@@ -194,37 +196,25 @@ func TestRopePersistence(t *testing.T) {
 }
 
 func BenchmarkRopeSample8(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		NewRopebuffer(runes, 8)
 	}
-	b.SetBytes(int64(len(data)))
+	b.SetBytes(int64(len(sampleData)))
 }
 
 func BenchmarkRopeSample256(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		NewRopebuffer(runes, 256)
 	}
-	b.SetBytes(int64(len(data)))
+	b.SetBytes(int64(len(sampleData)))
 }
 
 func BenchmarkRopeLength(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	rb := NewRopebuffer(runes, testRopeBufferCapacity)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -233,11 +223,7 @@ func BenchmarkRopeLength(b *testing.B) {
 }
 
 func BenchmarkRopeValue(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	rb := NewRopebuffer(runes, testRopeBufferCapacity)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -246,11 +232,7 @@ func BenchmarkRopeValue(b *testing.B) {
 }
 
 func BenchmarkRopeIndex(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	rb := NewRopebuffer(runes, testRopeBufferCapacity)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -259,11 +241,7 @@ func BenchmarkRopeIndex(b *testing.B) {
 }
 
 func BenchmarkRopeSubstr(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	rb := NewRopebuffer(runes, testRopeBufferCapacity)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -272,11 +250,7 @@ func BenchmarkRopeSubstr(b *testing.B) {
 }
 
 func BenchmarkRopeInsert(b *testing.B) {
-	data, err := ioutil.ReadFile("../testdata/sample.txt")
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes := []rune(string(data))
+	runes := []rune(string(sampleData))
 	rb := NewRopebuffer(runes, testRopeBufferCapacity)
 	s, err := rb.Substr(0, 10000)
 	if err != nil {
@@ -291,26 +265,18 @@ func BenchmarkRopeInsert(b *testing.B) {
 
 func BenchmarkBytes2Str(b *testing.B) {
 	var text string
-	data, err := ioutil.ReadFile("./rope_test.go")
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		text = string(data)
+		text = string(sampleData)
 	}
 	b.SetBytes(int64(len(text)))
 }
 
 func BenchmarkStr2Runes(b *testing.B) {
 	var text []rune
-	data, err := ioutil.ReadFile("./rope_test.go")
-	if err != nil {
-		b.Fatal(err)
-	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		text = []rune(string(data))
+		text = []rune(string(sampleData))
 	}
 	b.SetBytes(int64(len(text)))
 }

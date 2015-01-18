@@ -31,16 +31,15 @@ func NewRopebuffer(text []rune, capacity int64) *RopeBuffer {
 		Len:    l,
 		Cap:    capacity,
 	}
-	rb, _ = rb.build(capacity)
-	return rb
+	return rb.build(capacity)
 }
 
 // NewRopeLevel returns a new level of rope-buffer initialized
-// with left and right.
-func NewRopeLevel(
-	weight, length, capacity int64, left, right *RopeBuffer) *RopeBuffer {
+// with left and right. Uses the length of left-buffer as weight
+// and left-buffer capacity as its own capacity.
+func NewRopeLevel(length int64, left, right *RopeBuffer) *RopeBuffer {
 	return &RopeBuffer{
-		Weight: weight, Len: length, Left: left, Right: right, Cap: capacity,
+		Weight: left.Len, Len: length, Left: left, Right: right, Cap: left.Cap,
 	}
 }
 
@@ -104,7 +103,7 @@ func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
 	} else if right == nil {
 		return rb, nil
 	}
-	return NewRopeLevel(rb.Len, rb.Len+right.Len, rb.Cap, rb, right), nil
+	return NewRopeLevel(rb.Len+right.Len, rb, right), nil
 }
 
 // Split implement Buffer{} interface.
@@ -261,22 +260,15 @@ func (rb *RopeBuffer) io(src, text []rune, dot int64) []rune {
 	return newtext
 }
 
-func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
-	if rb.isLeaf() {
-		if rb.Len > capacity {
-			left, right, _ := rb.Split(rb.Len / 2)
-			x, err := left.build(capacity)
-			if err != nil {
-				return nil, err
-			}
-			y, err := right.build(capacity)
-			if err != nil {
-				return nil, err
-			}
-			return x.Concat(y)
-		}
+func (rb *RopeBuffer) build(capacity int64) *RopeBuffer {
+	if rb.isLeaf() && rb.Len > 0 && rb.Len > capacity {
+		left, right, _ := rb.Split(rb.Len / 2)
+		x := left.build(capacity)
+		y := right.build(capacity)
+		z, _ := x.Concat(y)
+		return z
 	}
-	return rb, nil
+	return rb
 }
 
 func (rb *RopeBuffer) split(

@@ -13,7 +13,9 @@ type LinearBuffer struct {
 
 // NewLinearBuffer returns a new buffer, initialized with text.
 func NewLinearBuffer(text []rune) *LinearBuffer {
-	return &LinearBuffer{Dot: 0, Text: text}
+	newt := make([]rune, len(text))
+	copy(newt, text)
+	return &LinearBuffer{Dot: 0, Text: newt}
 }
 
 // Length implement Buffer{} interface.
@@ -63,8 +65,11 @@ func (lb *LinearBuffer) Concat(right *LinearBuffer) (*LinearBuffer, error) {
 	} else if right == nil {
 		return lb, nil
 	}
-	lb.Text = append(lb.Text, right.Text...)
-	return lb, nil
+	newt := make([]rune, len(lb.Text)+len(right.Text))
+	copy(newt, lb.Text)
+	copy(newt[len(lb.Text):], right.Text)
+	newlb := NewLinearBuffer(newt)
+	return newlb, nil
 }
 
 // Split implement Buffer{} interface.
@@ -123,10 +128,11 @@ func (lb *LinearBuffer) Delete(dot, n int64) (*LinearBuffer, error) {
 	} else if end := dot + n; end < 0 || end > int64(len(lb.Text)) {
 		return nil, v.ErrorIndexOutofbound
 	}
-	l := int64(len(lb.Text))
-	copy(lb.Text[dot:], lb.Text[dot+n:])
-	lb = NewLinearBuffer(lb.Text[:l-n])
-	return lb, nil
+	newt := make([]rune, int64(len(lb.Text))-n)
+	copy(newt[:dot], lb.Text[:dot])
+	copy(newt[dot:], lb.Text[dot+n:])
+	newlb := NewLinearBuffer(newt)
+	return newlb, nil
 }
 
 // DeleteIO implement Buffer{} interface.

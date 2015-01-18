@@ -141,7 +141,7 @@ func testInsert(
 		return lb, rb, nil
 	}
 	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
-		return lb1, rb1, fmt.Errorf("mismatch in input %s : %s", x, y)
+		return lb1, rb1, fmt.Errorf("mismatch in text %s : %s", x, y)
 	}
 	return lb1, rb1, nil
 }
