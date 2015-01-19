@@ -7,9 +7,7 @@ import "fmt"
 import "log"
 import "os"
 import "time"
-import "unsafe"
 import "sync"
-import "sync/atomic"
 
 import "github.com/prataprc/monster"
 import "github.com/prataprc/goparsec"
@@ -48,9 +46,23 @@ func usage() {
 	flag.PrintDefaults()
 }
 
+var dsmu sync.Mutex
 var ds struct {
-	lb unsafe.Pointer
-	rb unsafe.Pointer
+	lb *buffer.LinearBuffer
+	rb *buffer.RopeBuffer
+}
+
+func getds() (*buffer.LinearBuffer, *buffer.RopeBuffer) {
+	dsmu.Lock()
+	defer dsmu.Unlock()
+	lb, rb := ds.lb, ds.rb
+	return lb, rb
+}
+
+func setds(lb *buffer.LinearBuffer, rb *buffer.RopeBuffer) {
+	dsmu.Lock()
+	defer dsmu.Unlock()
+	ds.lb, ds.rb = lb, rb
 }
 
 func main() {
@@ -61,9 +73,8 @@ func main() {
 		log.Fatal(err)
 	}
 	lb := buffer.NewLinearBuffer([]rune(""))
-	atomic.StorePointer(&ds.lb, unsafe.Pointer(lb))
 	rb := buffer.NewRopebuffer([]rune(""), buffer.RopeBufferCapacity)
-	atomic.StorePointer(&ds.rb, unsafe.Pointer(rb))
+	setds(lb, rb)
 	ch := make(chan bool, options.count)
 	n := int64(0)
 	for n < options.count {
@@ -85,9 +96,22 @@ func main() {
 	}
 	// wait until all tests are executed
 	n = int64(0)
+	persistValues := make(map[*buffer.RopeBuffer]string)
 	for n < options.count {
-		n++
-		<-ch
+		switch {
+		case <-ch:
+			n++
+		default:
+		}
+		_, rb = getds()
+		persistValues[rb] = string(rb.Value())
+	}
+	// verify persistant values.
+	for rb, refstr := range persistValues {
+		if refstr != string(rb.Value()) {
+			fmt.Printf("seed: %v\n", options.seed)
+			fmt.Println("Mismatch ...\n%s\n%s\n\n", refstr, string(rb.Value()))
+		}
 	}
 	// format and print statistics
 	total := int64(0)
@@ -95,11 +119,7 @@ func main() {
 		total += val
 	}
 	fmt.Printf("total: %v\n%v\n", total, stats)
-
-	//lb = (*buffer.LinearBuffer)(atomic.LoadPointer(&ds.lb))
-	//rb = (*buffer.RopeBuffer)(atomic.LoadPointer(&ds.rb))
-	//l, _ := rb.Length()
-	//fmt.Printf("final string %v %s\n", l, string(rb.Value()))
+	fmt.Printf("verified: %v persistant values\n", len(persistValues))
 }
 
 func testCommands(s string, ch chan bool) {
@@ -111,19 +131,15 @@ func testCommands(s string, ch chan bool) {
 		return
 	}
 	for _, cmd := range cmds {
-		lb := unsafe.Pointer(atomic.LoadPointer(&ds.lb))
-		rb := unsafe.Pointer(atomic.LoadPointer(&ds.rb))
-		lbuf := (*buffer.LinearBuffer)(lb)
-		rbuf := (*buffer.RopeBuffer)(rb)
+		lb, rb := getds()
 		statkey := cmd.([]interface{})[0].(string)
-		lbuf, rbuf, err = testCommand(cmd.([]interface{}), lbuf, rbuf)
+		lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 		incrStat(statkey)
-		atomic.StorePointer(&ds.lb, unsafe.Pointer(lbuf))
-		atomic.StorePointer(&ds.rb, unsafe.Pointer(rbuf))
+		setds(lb, rb)
 	}
 	ch <- true
 	return
