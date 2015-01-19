@@ -1,7 +1,6 @@
-package rope
+package buffer
 
 import "fmt"
-import "github.com/prataprc/v"
 
 var _ = fmt.Sprintf("dummy")
 
@@ -21,7 +20,7 @@ func NewLinearBuffer(text []rune) *LinearBuffer {
 // Length implement Buffer{} interface.
 func (lb *LinearBuffer) Length() (n int64, err error) {
 	if lb == nil {
-		return n, v.ErrorBufferNil
+		return n, ErrorBufferNil
 	}
 	return int64(len(lb.Text)), nil
 }
@@ -37,11 +36,11 @@ func (lb *LinearBuffer) Value() []rune {
 // Index implement Buffer{} interface.
 func (lb *LinearBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	if lb == nil {
-		return ch, false, v.ErrorBufferNil
+		return ch, false, ErrorBufferNil
 	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
-		return ch, false, v.ErrorIndexOutofbound
+		return ch, false, ErrorIndexOutofbound
 	} else if dot == l {
-		return ch, false, v.ErrorIndexOutofbound
+		return ch, false, ErrorIndexOutofbound
 	}
 	return lb.Text[dot], true, nil
 }
@@ -51,9 +50,9 @@ func (lb *LinearBuffer) Substr(dot int64, n int64) (string, error) {
 	if lb == nil {
 		return "", nil
 	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
-		return "", v.ErrorIndexOutofbound
+		return "", ErrorIndexOutofbound
 	} else if dot+n > l {
-		return "", v.ErrorIndexOutofbound
+		return "", ErrorIndexOutofbound
 	}
 	return string(lb.Text[dot : dot+n]), nil
 }
@@ -75,9 +74,9 @@ func (lb *LinearBuffer) Concat(right *LinearBuffer) (*LinearBuffer, error) {
 // Split implement Buffer{} interface.
 func (lb *LinearBuffer) Split(dot int64) (left, right *LinearBuffer, err error) {
 	if lb == nil {
-		return left, right, v.ErrorBufferNil
+		return left, right, ErrorBufferNil
 	} else if dot < 0 || dot > int64(len(lb.Text)) {
-		return left, right, v.ErrorIndexOutofbound
+		return left, right, ErrorIndexOutofbound
 	} else if dot == 0 {
 		return nil, lb, nil
 	} else if dot == int64(len(lb.Text)) {
@@ -122,11 +121,11 @@ func (lb *LinearBuffer) InsertIO(dot int64, text []rune) (*LinearBuffer, error) 
 // Delete implement Buffer{} interface.
 func (lb *LinearBuffer) Delete(dot, n int64) (*LinearBuffer, error) {
 	if lb == nil {
-		return nil, v.ErrorBufferNil
+		return nil, ErrorBufferNil
 	} else if dot < 0 || dot > int64(len(lb.Text)-1) {
-		return nil, v.ErrorIndexOutofbound
+		return nil, ErrorIndexOutofbound
 	} else if end := dot + n; end < 0 || end > int64(len(lb.Text)) {
-		return nil, v.ErrorIndexOutofbound
+		return nil, ErrorIndexOutofbound
 	}
 	newt := make([]rune, int64(len(lb.Text))-n)
 	copy(newt[:dot], lb.Text[:dot])
@@ -141,6 +140,6 @@ func (lb *LinearBuffer) DeleteIO(dot, n int64) (*LinearBuffer, error) {
 }
 
 // Stats implement Buffer{} interface.
-func (lb *LinearBuffer) Stats() (stats v.Statistics, err error) {
+func (lb *LinearBuffer) Stats() (stats Statistics, err error) {
 	return
 }

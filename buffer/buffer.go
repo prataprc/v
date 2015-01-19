@@ -1,4 +1,4 @@
-package v
+package buffer
 
 import "fmt"
 import "errors"

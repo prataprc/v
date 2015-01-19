@@ -1,12 +1,10 @@
-package rope
+package buffer
 
 import "testing"
 import "io/ioutil"
 import "fmt"
 import "log"
 import "math/rand"
-
-import "github.com/prataprc/v"
 
 var _ = fmt.Sprintf("dummy")
 
@@ -63,7 +61,7 @@ func TestRopeDicing(t *testing.T) {
 func TestRopeInsertBasic(t *testing.T) {
 	rb := NewRopebuffer([]rune("hello world"), 2)
 	// before begin
-	if _, err := rb.Insert(-1, []rune("a")); err != v.ErrorIndexOutofbound {
+	if _, err := rb.Insert(-1, []rune("a")); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("hello world")); err != nil {
 		t.Fatal(err)
@@ -93,7 +91,7 @@ func TestRopeInsertBasic(t *testing.T) {
 	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
 		t.Fatal(err)
 		// after end
-	} else if _, err = rb.Insert(17, []rune("a")); err != v.ErrorIndexOutofbound {
+	} else if _, err = rb.Insert(17, []rune("a")); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("1hell2o34 world5")); err != nil {
 		t.Fatal(err)
@@ -131,7 +129,7 @@ func TestRopeInsertMany(t *testing.T) {
 func TestRopeDeleteBasic(t *testing.T) {
 	rb := NewRopebuffer([]rune("hello world"), 2)
 	// before begin
-	if _, err := rb.Delete(-1, 0); err != v.ErrorIndexOutofbound {
+	if _, err := rb.Delete(-1, 0); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("hello world")); err != nil {
 		t.Fatal(err)
@@ -151,7 +149,7 @@ func TestRopeDeleteBasic(t *testing.T) {
 	} else if err = validateRead(rb, []rune("eorld")); err != nil {
 		t.Fatal(err)
 		// at middle
-	} else if _, err = rb.Delete(3, 4); err != v.ErrorIndexOutofbound {
+	} else if _, err = rb.Delete(3, 4); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("eorld")); err != nil {
 		t.Fatal(err)
@@ -330,13 +328,13 @@ func validateRead(rb *RopeBuffer, ref []rune) error {
 			}
 		}
 		// out of bound index
-		if _, _, err := rb.Index(-1); err != v.ErrorIndexOutofbound {
-			return fmt.Errorf("expecting v.ErrorIndexOutofbound at -1")
+		if _, _, err := rb.Index(-1); err != ErrorIndexOutofbound {
+			return fmt.Errorf("expecting ErrorIndexOutofbound at -1")
 		}
 		// out of bound index
 		_, _, err := rb.Index(int64(len(ref)))
-		if err != v.ErrorIndexOutofbound {
-			return fmt.Errorf("expecting v.ErrorIndexOutofbound at %d", len(ref))
+		if err != ErrorIndexOutofbound {
+			return fmt.Errorf("expecting ErrorIndexOutofbound at %d", len(ref))
 		}
 		// verify substr
 		for dot := 0; dot < len(ref); dot++ {

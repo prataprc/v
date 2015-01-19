@@ -1,8 +1,7 @@
-package rope
+package buffer
 
 import "fmt"
 import "math"
-import "github.com/prataprc/v"
 
 var _ = fmt.Sprintf("dummy")
 
@@ -51,7 +50,7 @@ func (rb *RopeBuffer) Cursor() int64 {
 // Length implement Buffer{} interface.
 func (rb *RopeBuffer) Length() (l int64, err error) {
 	if rb == nil {
-		return l, v.ErrorBufferNil
+		return l, ErrorBufferNil
 	}
 	return rb.Len, nil
 }
@@ -66,11 +65,11 @@ func (rb *RopeBuffer) Value() []rune {
 // Index implement Buffer{} interface.
 func (rb *RopeBuffer) Index(dot int64) (ch rune, ok bool, err error) {
 	if rb == nil {
-		return ch, ok, v.ErrorBufferNil
+		return ch, ok, ErrorBufferNil
 	} else if dot < 0 || dot > rb.Len {
-		return ch, ok, v.ErrorIndexOutofbound
+		return ch, ok, ErrorIndexOutofbound
 	} else if dot == rb.Len {
-		return ch, false, v.ErrorIndexOutofbound
+		return ch, false, ErrorIndexOutofbound
 	}
 
 	if rb.isLeaf() {
@@ -86,9 +85,9 @@ func (rb *RopeBuffer) Substr(dot int64, n int64) (string, error) {
 	if rb == nil {
 		return "", nil
 	} else if dot < 0 || dot > rb.Len {
-		return "", v.ErrorIndexOutofbound
+		return "", ErrorIndexOutofbound
 	} else if dot+n > rb.Len {
-		return "", v.ErrorIndexOutofbound
+		return "", ErrorIndexOutofbound
 	}
 
 	acc := make([]rune, n)
@@ -109,10 +108,10 @@ func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
 // Split implement Buffer{} interface.
 func (rb *RopeBuffer) Split(dot int64) (left, right *RopeBuffer, err error) {
 	if rb == nil {
-		return nil, nil, v.ErrorBufferNil
+		return nil, nil, ErrorBufferNil
 
 	} else if dot < 0 || dot > rb.Len {
-		return nil, nil, v.ErrorIndexOutofbound
+		return nil, nil, ErrorIndexOutofbound
 	}
 	return rb.split(dot, nil)
 }
@@ -124,7 +123,7 @@ func (rb *RopeBuffer) Insert(dot int64, text []rune) (*RopeBuffer, error) {
 	} else if rb == nil {
 		return NewRopebuffer(text, rb.Cap), nil
 	} else if dot < 0 || dot > rb.Len {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	}
 	left, right, err := rb.Split(dot)
 	if err != nil {
@@ -144,7 +143,7 @@ func (rb *RopeBuffer) InsertIO(dot int64, text []rune) (*RopeBuffer, error) {
 	} else if rb == nil {
 		return NewRopebuffer(text, rb.Cap), nil
 	} else if dot < 0 || dot > rb.Len {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	}
 	if rb.isLeaf() { // make inplace modification
 		text := rb.io(rb.Text, text, dot)
@@ -170,11 +169,11 @@ func (rb *RopeBuffer) InsertIO(dot int64, text []rune) (*RopeBuffer, error) {
 // Delete implement Buffer{} interface.
 func (rb *RopeBuffer) Delete(dot, n int64) (*RopeBuffer, error) {
 	if rb == nil {
-		return rb, v.ErrorBufferNil
+		return rb, ErrorBufferNil
 	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	} else if end := dot + n; end < 0 || end > int64(l) {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	}
 	left, forRight, err := rb.Split(dot)
 	if err != nil {
@@ -190,11 +189,11 @@ func (rb *RopeBuffer) Delete(dot, n int64) (*RopeBuffer, error) {
 // DeleteIO implement Buffer{} interface.
 func (rb *RopeBuffer) DeleteIO(dot, n int64) (*RopeBuffer, error) {
 	if rb == nil {
-		return rb, v.ErrorBufferNil
+		return rb, ErrorBufferNil
 	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	} else if end := dot + n; end < 0 || end > int64(l) {
-		return rb, v.ErrorIndexOutofbound
+		return rb, ErrorIndexOutofbound
 	}
 	if rb.isLeaf() {
 		if dot+n > rb.Len {
