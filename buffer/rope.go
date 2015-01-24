@@ -9,7 +9,7 @@ var RopeBufferCapacity = int64(64)
 
 // RopeBuffer represents a persistent rope data structure.
 type RopeBuffer struct {
-	Dot    int64       `json:"dot,omitempty"`
+	// buffer implementation.
 	Text   []rune      `json:"text,omitempty"`
 	Weight int64       `json:"weight,omitempty"`
 	Len    int64       `json:"length,omitempty"`
@@ -23,13 +23,7 @@ func NewRopebuffer(text []rune, capacity int64) *RopeBuffer {
 	l := int64(len(text))
 	txt := make([]rune, l)
 	copy(txt, text)
-	rb := &RopeBuffer{
-		Dot:    0,
-		Text:   txt,
-		Weight: l,
-		Len:    l,
-		Cap:    capacity,
-	}
+	rb := &RopeBuffer{Text: txt, Weight: l, Len: l, Cap: capacity}
 	return rb.build(capacity)
 }
 
@@ -42,10 +36,9 @@ func NewRopeLevel(length int64, left, right *RopeBuffer) *RopeBuffer {
 	}
 }
 
-// Cursor implement Buffer{} interface.
-func (rb *RopeBuffer) Cursor() int64 {
-	return rb.Dot
-}
+//----------------------
+// Buffer implementation
+//----------------------
 
 // Length implement Buffer{} interface.
 func (rb *RopeBuffer) Length() (l int64, err error) {

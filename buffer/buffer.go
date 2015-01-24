@@ -14,18 +14,21 @@ var ErrorIndexOutofbound = errors.New("buffer.indexOutofbound")
 
 type Statistics map[string]interface{}
 
-// within a buffer all text is unicode and represented
+// Buffer describes a buffer and access into buffer, where a
+// buffer can be implemented as linear array, gap-buffer,
+// rope-buffer etc.
+//
+// Within a buffer all text is unicode and represented
 // as rune.
 // - characters can enter buffer, via cmd, only as rune.
 // - characters exit buffer only as rune.
 //
-// dot - is the cursor within the buffer starting from 0,
+// Dot - is the cursor within the buffer starting from 0,
 // where a value of N means there are N runes before the
-// cursor, 0 means start, max(int64) means end.
+// cursor,
+// 0 means start
+// z len(buffer) means end
 type Buffer interface {
-	// Cursor return current cursor position within buffer.
-	Cursor() int64
-
 	// Length return no. of runes in buffer.
 	Length() (l int64, err error)
 
