@@ -2,15 +2,15 @@ package buffer
 
 import "fmt"
 import "math"
+import "unicode/utf8"
 
 var _ = fmt.Sprintf("dummy")
 
 var RopeBufferCapacity = int64(64)
 
 // RopeBuffer represents a persistent rope data structure.
-type RopeBuffer struct {
-	// buffer implementation.
-	Text   []rune      `json:"text,omitempty"`
+type RopeBuffer struct { // buffer implementation.
+	Text   []byte      `json:"text,omitempty"`
 	Weight int64       `json:"weight,omitempty"`
 	Len    int64       `json:"length,omitempty"`
 	Cap    int64       `json:"capacity,omitempty"`
@@ -19,11 +19,12 @@ type RopeBuffer struct {
 }
 
 // NewRopebuffer returns a new buffer, initialized with text.
-func NewRopebuffer(text []rune, capacity int64) *RopeBuffer {
+// Capacity will decide the maximum length the buffer can hold
+// beyond which it splits. The buffer always splits at unicode
+// boundary.
+func NewRopebuffer(text []byte, capacity int64) (*RopeBuffer, error) {
 	l := int64(len(text))
-	txt := make([]rune, l)
-	copy(txt, text)
-	rb := &RopeBuffer{Text: txt, Weight: l, Len: l, Cap: capacity}
+	rb := &RopeBuffer{Text: text, Weight: l, Len: l, Cap: capacity}
 	return rb.build(capacity)
 }
 
@@ -49,43 +50,76 @@ func (rb *RopeBuffer) Length() (l int64, err error) {
 }
 
 // Value implement Buffer{} interface.
-func (rb *RopeBuffer) Value() []rune {
-	acc := make([]rune, rb.Len)
-	rb.report(0, rb.Len, acc)
+func (rb *RopeBuffer) Value() []byte {
+	acc := make([]byte, rb.Len)
+	rb.value(0, rb.Len, acc)
 	return acc
 }
 
-// Index implement Buffer{} interface.
-func (rb *RopeBuffer) Index(dot int64) (ch rune, ok bool, err error) {
+// Slice implement Buffer{} interface.
+func (rb *RopeBuffer) Slice(bCur, bn int64) ([]byte, error) {
 	if rb == nil {
-		return ch, ok, ErrorBufferNil
-	} else if dot < 0 || dot > rb.Len {
-		return ch, ok, ErrorIndexOutofbound
-	} else if dot == rb.Len {
-		return ch, false, ErrorIndexOutofbound
+		return nil, nil
+	} else if bCur < 0 || bCur > rb.Len {
+		return nil, ErrorIndexOutofbound
+	} else if bCur+bn > rb.Len {
+		return nil, ErrorIndexOutofbound
+	}
+
+	acc := make([]byte, bn)
+	rb.value(bCur, bn, acc)
+	return acc, nil
+}
+
+// RuneAt implement Buffer{} interface.
+func (rb *RopeBuffer) RuneAt(bCur int64) (ch rune, size int64, err error) {
+	if rb == nil {
+		return ch, size, ErrorBufferNil
+	} else if bCur < 0 || bCur >= rb.Len {
+		return ch, size, ErrorIndexOutofbound
 	}
 
 	if rb.isLeaf() {
-		return rb.Text[dot], true, nil
-	} else if dot >= rb.Weight {
-		return rb.Right.Index(dot - rb.Weight)
+		ch, size := utf8.DecodeRune(rb.Text[bCur:])
+		if ch == utf8.RuneError {
+			return ch, int64(size), ErrorInvalidEncoding
+		}
+		return ch, int64(size), nil
+
+	} else if bCur >= rb.Weight {
+		return rb.Right.RuneAt(bCur - rb.Weight)
 	}
-	return rb.Left.Index(dot)
+	return rb.Left.RuneAt(bCur)
 }
 
-// Substr implement Buffer{} interface.
-func (rb *RopeBuffer) Substr(dot int64, n int64) (string, error) {
+// Runes implement Buffer{} interface.
+func (rb *RopeBuffer) Runes() ([]rune, error) {
+	acc := make([]rune, 0, rb.Len/8)
+	_, size, err := rb.runes(0, rb.Len, acc)
+	if err != nil {
+		return nil, err
+	} else if size != rb.Len {
+		panic("mismatch in decoded bytes and length")
+	}
+	return acc, nil
+}
+
+// RuneSlice implement Buffer{} interface.
+func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	if rb == nil {
-		return "", nil
-	} else if dot < 0 || dot > rb.Len {
-		return "", ErrorIndexOutofbound
-	} else if dot+n > rb.Len {
-		return "", ErrorIndexOutofbound
+		return nil, 0, ErrorBufferNil
+	} else if bCur < 0 || bCur > rb.Len {
+		return nil, 0, ErrorIndexOutofbound
 	}
 
-	acc := make([]rune, n)
-	rb.report(dot, n, acc)
-	return string(acc), nil
+	acc := make([]rune, 0, rn)
+	count, size, err := rb.runes(bCur, rn, acc)
+	if err != nil {
+		return nil, 0, err
+	} else if count < rn && bCur+size != rb.Len {
+		panic("mismatch in decoded bytes and length")
+	}
+	return acc, size, nil
 }
 
 // Concat implement Buffer{} interface.
@@ -99,133 +133,68 @@ func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
 }
 
 // Split implement Buffer{} interface.
-func (rb *RopeBuffer) Split(dot int64) (left, right *RopeBuffer, err error) {
+func (rb *RopeBuffer) Split(bCur int64) (left, right *RopeBuffer, err error) {
 	if rb == nil {
 		return nil, nil, ErrorBufferNil
 
-	} else if dot < 0 || dot > rb.Len {
+	} else if bCur < 0 || bCur > rb.Len {
 		return nil, nil, ErrorIndexOutofbound
 	}
-	return rb.split(dot, nil)
+	return rb.split(bCur, nil)
 }
 
 // Insert implement Buffer{} interface.
-func (rb *RopeBuffer) Insert(dot int64, text []rune) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
 	if text == nil {
 		return rb, nil
+
 	} else if rb == nil {
-		return NewRopebuffer(text, rb.Cap), nil
-	} else if dot < 0 || dot > rb.Len {
+		return NewRopebuffer([]byte(string(text)), rb.Cap)
+
+	} else if bCur < 0 || bCur > rb.Len {
 		return rb, ErrorIndexOutofbound
 	}
-	left, right, err := rb.Split(dot)
+	left, right, err := rb.Split(bCur)
 	if err != nil {
 		return rb, err
 	}
-	x, err := left.Concat(NewRopebuffer(text, rb.Cap))
+	insrtRight, err := NewRopebuffer([]byte(string(text)), rb.Cap)
+	if err != nil {
+		return rb, err
+	}
+	x, err := left.Concat(insrtRight)
 	if err != nil {
 		return rb, err
 	}
 	return x.Concat(right)
 }
 
-// InsertIO implement Buffer{} interface.
-func (rb *RopeBuffer) InsertIO(dot int64, text []rune) (*RopeBuffer, error) {
-	if text == nil {
-		return rb, nil
-	} else if rb == nil {
-		return NewRopebuffer(text, rb.Cap), nil
-	} else if dot < 0 || dot > rb.Len {
-		return rb, ErrorIndexOutofbound
-	}
-	if rb.isLeaf() { // make inplace modification
-		text := rb.io(rb.Text, text, dot)
-		return NewRopebuffer(text, rb.Cap), nil
-	}
-	if dot <= rb.Weight {
-		left, err := rb.Left.InsertIO(dot, text)
-		if err != nil {
-			return rb, err
-		}
-		rb.Left = left
-		rb.Weight += int64(len(text))
-		return rb, nil
-	}
-	right, err := rb.Right.InsertIO(dot-rb.Weight, text)
-	if err != nil {
-		return rb, err
-	}
-	rb.Right = right
-	return rb, nil
-}
-
 // Delete implement Buffer{} interface.
-func (rb *RopeBuffer) Delete(dot, n int64) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 	if rb == nil {
 		return rb, ErrorBufferNil
-	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
+
+	} else if bCur < 0 || bCur > int64(rb.Len-1) {
 		return rb, ErrorIndexOutofbound
-	} else if end := dot + n; end < 0 || end > int64(l) {
+
+	}
+
+	_, size, err := rb.RuneSlice(bCur, rn)
+	if err != nil {
+		return rb, err
+	} else if end := bCur + size; end < 0 || end > int64(rb.Len) {
 		return rb, ErrorIndexOutofbound
 	}
-	left, forRight, err := rb.Split(dot)
+
+	left, forRight, err := rb.Split(bCur)
 	if err != nil {
 		return rb, err
 	}
-	_, right, err := forRight.Split(n)
+	_, right, err := forRight.Split(size)
 	if err != nil {
 		return rb, err
 	}
 	return left.Concat(right)
-}
-
-// DeleteIO implement Buffer{} interface.
-func (rb *RopeBuffer) DeleteIO(dot, n int64) (*RopeBuffer, error) {
-	if rb == nil {
-		return rb, ErrorBufferNil
-	} else if l := rb.Len; dot < 0 || dot > int64(l-1) {
-		return rb, ErrorIndexOutofbound
-	} else if end := dot + n; end < 0 || end > int64(l) {
-		return rb, ErrorIndexOutofbound
-	}
-	if rb.isLeaf() {
-		if dot+n > rb.Len {
-			rb.Text = rb.Text[:dot]
-		} else {
-			copy(rb.Text[dot:dot+n], rb.Text[dot+n:])
-			rb.Text = rb.Text[:rb.Len-n]
-		}
-		l := int64(len(rb.Text))
-		if l == 0 {
-			return nil, nil
-		}
-		rb.Weight, rb.Len = l, l
-		return rb, nil
-	}
-	if dot < rb.Weight {
-		left, err := rb.Left.DeleteIO(dot, n)
-		if err != nil {
-			return rb, err
-
-		} else if left == nil {
-			right, err := rb.Right.DeleteIO(0, n-rb.Weight)
-			if err != nil {
-				return rb, err
-			} else if right == nil {
-				return nil, nil
-			}
-			return right, nil
-		}
-		rb.Weight = rb.Weight - n
-		rb.Left = left
-		return rb, nil
-	}
-	right, err := rb.Right.DeleteIO(dot-rb.Weight, n)
-	if err != nil {
-		return rb, err
-	}
-	rb.Right = right
-	return rb, nil
 }
 
 // Stats implement Buffer{} interface.
@@ -252,30 +221,40 @@ func (rb *RopeBuffer) io(src, text []rune, dot int64) []rune {
 	return newtext
 }
 
-func (rb *RopeBuffer) build(capacity int64) *RopeBuffer {
+func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
+	var left, right, x, y *RopeBuffer
+
 	if rb.isLeaf() && rb.Len > 0 && rb.Len > capacity {
-		left, right, _ := rb.Split(rb.Len / 2)
-		x := left.build(capacity)
-		y := right.build(capacity)
-		z, _ := x.Concat(y)
-		return z
+		n, err := getRuneStart(rb.Text[capacity:])
+		if err != nil {
+			return nil, err
+		}
+		splitAt := rb.Len + n
+		if left, right, err = rb.Split(splitAt / 2); err != nil {
+			return nil, err
+		}
+		if x, err = left.build(capacity); err != nil {
+			return nil, err
+		}
+		if y, err = right.build(capacity); err != nil {
+			return nil, err
+		}
+		return x.Concat(y)
 	}
-	return rb
+	return rb, nil
 }
 
-func (rb *RopeBuffer) split(
-	dot int64, right *RopeBuffer) (*RopeBuffer, *RopeBuffer, error) {
-
+func (rb *RopeBuffer) split(bCur int64, right *RopeBuffer) (*RopeBuffer, *RopeBuffer, error) {
 	var err error
 
-	if dot == rb.Weight { // exact
+	if bCur == rb.Weight { // exact
 		if rb.isLeaf() {
 			return rb, rb.Right, nil
 		}
 		return rb.Left, rb.Right, nil
 
-	} else if dot > rb.Weight { // recurse on the right
-		newRight, right, err := rb.Right.split(dot-rb.Weight, right)
+	} else if bCur > rb.Weight { // recurse on the right
+		newRight, right, err := rb.Right.split(bCur-rb.Weight, right)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -288,15 +267,24 @@ func (rb *RopeBuffer) split(
 	}
 	// recurse on the left
 	if rb.isLeaf() { // splitting leaf at index
-		if dot > 0 {
-			l := NewRopebuffer(rb.Text[0:dot], rb.Cap)
-			r := NewRopebuffer(rb.Text[dot:len(rb.Text)], rb.Cap)
+		if bCur > 0 {
+			l, err := NewRopebuffer(rb.Text[0:bCur], rb.Cap)
+			if err != nil {
+				return nil, nil, err
+			}
+			r, err := NewRopebuffer(rb.Text[bCur:len(rb.Text)], rb.Cap)
+			if err != nil {
+				return nil, nil, err
+			}
 			return l, r, nil
 		}
-		r := NewRopebuffer(rb.Text[dot:len(rb.Text)], rb.Cap)
+		r, err := NewRopebuffer(rb.Text[bCur:len(rb.Text)], rb.Cap)
+		if err != nil {
+			return nil, nil, err
+		}
 		return nil, r, nil
 	}
-	newLeft, right, err := rb.Left.split(dot, right)
+	newLeft, right, err := rb.Left.split(bCur, right)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -307,20 +295,44 @@ func (rb *RopeBuffer) split(
 	return newLeft, right, nil
 }
 
-func (rb *RopeBuffer) report(dot int64, n int64, acc []rune) {
-	if dot > rb.Weight { // recurse to right
-		rb.Right.report(dot-rb.Weight, n, acc)
+func (rb *RopeBuffer) value(bCur int64, n int64, acc []byte) {
+	if bCur > rb.Weight { // recurse to right
+		rb.Right.value(bCur-rb.Weight, n, acc)
 
-	} else if rb.Weight >= dot+n { // the left branch has enough values
+	} else if rb.Weight >= bCur+n { // the left branch has enough values
 		if rb.isLeaf() {
-			copy(acc, rb.Text[dot:dot+n])
+			copy(acc, rb.Text[bCur:bCur+n])
 		} else {
-			rb.Left.report(dot, n, acc)
+			rb.Left.value(bCur, n, acc)
 		}
 
 	} else { // else split the work
-		rb.Left.report(dot, rb.Weight-dot, acc[:rb.Weight-dot])
-		rb.Right.report(0, dot+n-rb.Weight, acc[rb.Weight-dot:])
+		leftN := rb.Weight - bCur
+		rb.Left.value(bCur, leftN, acc[:leftN])
+		rb.Right.value(0, n-leftN, acc[leftN:])
+	}
+}
+
+func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, error) {
+	if rb.isLeaf() {
+		count, size, err := bytes2RunesN(rb.Text[bCur:], rn, acc)
+		if err != nil {
+			return 0, 0, err
+		}
+		return count, size, nil
+
+	} else if bCur > rb.Weight { // recurse to right
+		return rb.Right.runes(bCur-rb.Weight, rn, acc)
+
+	} else { // else split the work
+		lcount, lsize, err := rb.Left.runes(bCur, rn, acc)
+		if err != nil {
+			return 0, 0, err
+		} else if bCur+lsize != rb.Weight {
+			panic("mismatch in boundary")
+		}
+		rcount, rsize, err := rb.Right.runes(bCur+lsize, rn-lcount, acc[lcount:])
+		return lcount + rcount, lsize + rsize, err
 	}
 }
 

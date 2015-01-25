@@ -1,20 +1,20 @@
 package buffer
 
 import "fmt"
+import "unicode/utf8"
 
 var _ = fmt.Sprintf("dummy")
 
 // LinearBuffer represents mutable sequence of runes as buffer.
 type LinearBuffer struct {
-	Dot  int64
-	Text []rune
+	Text []byte
 }
 
 // NewLinearBuffer returns a new buffer, initialized with text.
-func NewLinearBuffer(text []rune) *LinearBuffer {
-	newt := make([]rune, len(text))
+func NewLinearBuffer(text []byte) *LinearBuffer {
+	newt := make([]byte, len(text))
 	copy(newt, text)
-	return &LinearBuffer{Dot: 0, Text: newt}
+	return &LinearBuffer{Text: newt}
 }
 
 // Length implement Buffer{} interface.
@@ -26,35 +26,60 @@ func (lb *LinearBuffer) Length() (n int64, err error) {
 }
 
 // Value implement Buffer{} interface.
-func (lb *LinearBuffer) Value() []rune {
+func (lb *LinearBuffer) Value() []byte {
 	if lb == nil {
 		return nil
 	}
 	return lb.Text
 }
 
-// Index implement Buffer{} interface.
-func (lb *LinearBuffer) Index(dot int64) (ch rune, ok bool, err error) {
+func (lb *LinearBuffer) Slice(bCur, bn int64) ([]byte, error) {
 	if lb == nil {
-		return ch, false, ErrorBufferNil
-	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
-		return ch, false, ErrorIndexOutofbound
-	} else if dot == l {
-		return ch, false, ErrorIndexOutofbound
+		return nil, nil
+	} else if l := int64(len(lb.Text)); bCur < 0 || bCur > l {
+		return nil, ErrorIndexOutofbound
+	} else if end := bCur + bn; end < 0 || end > int64(len(lb.Text)) {
+		return nil, ErrorIndexOutofbound
 	}
-	return lb.Text[dot], true, nil
+	return lb.Text[bCur : bCur+bn], nil
 }
 
-// Substr implement Buffer{} interface.
-func (lb *LinearBuffer) Substr(dot int64, n int64) (string, error) {
+// RuneAt implement Buffer{} interface.
+func (lb *LinearBuffer) RuneAt(bCur int64) (ch rune, size int, err error) {
 	if lb == nil {
-		return "", nil
-	} else if l := int64(len(lb.Text)); dot < 0 || dot > l {
-		return "", ErrorIndexOutofbound
-	} else if dot+n > l {
-		return "", ErrorIndexOutofbound
+		return ch, size, ErrorBufferNil
+	} else if l := int64(len(lb.Text)); bCur < 0 || bCur >= l {
+		return ch, size, ErrorIndexOutofbound
 	}
-	return string(lb.Text[dot : dot+n]), nil
+	ch, size = utf8.DecodeRune(lb.Text[bCur:])
+	return ch, size, nil
+}
+
+// Runes implement Buffer{} interface.
+func (lb *LinearBuffer) Runes() ([]rune, error) {
+	if lb == nil {
+		return nil, ErrorBufferNil
+	}
+	return bytes2Runes(lb.Text)
+}
+
+// RuneSlice implement Buffer{} interface.
+func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
+	if lb == nil {
+		return nil, 0, nil
+	} else if l := int64(len(lb.Text)); bCur < 0 || bCur > l {
+		return nil, 0, ErrorIndexOutofbound
+	}
+	runes, size := make([]rune, rn), int64(0)
+	for i := int64(0); i < rn; i++ {
+		ch, sz := utf8.DecodeRune(lb.Text[bCur+size:])
+		if ch == utf8.RuneError {
+			return nil, 0, ErrorInvalidEncoding
+		}
+		runes = append(runes, ch)
+		size += int64(sz)
+	}
+	return runes, size, nil
 }
 
 // Concat implement Buffer{} interface.
@@ -64,7 +89,7 @@ func (lb *LinearBuffer) Concat(right *LinearBuffer) (*LinearBuffer, error) {
 	} else if right == nil {
 		return lb, nil
 	}
-	newt := make([]rune, len(lb.Text)+len(right.Text))
+	newt := make([]byte, len(lb.Text)+len(right.Text))
 	copy(newt, lb.Text)
 	copy(newt[len(lb.Text):], right.Text)
 	newlb := NewLinearBuffer(newt)
@@ -72,71 +97,77 @@ func (lb *LinearBuffer) Concat(right *LinearBuffer) (*LinearBuffer, error) {
 }
 
 // Split implement Buffer{} interface.
-func (lb *LinearBuffer) Split(dot int64) (left, right *LinearBuffer, err error) {
+func (lb *LinearBuffer) Split(bCur int64) (left, right *LinearBuffer, err error) {
 	if lb == nil {
 		return left, right, ErrorBufferNil
-	} else if dot < 0 || dot > int64(len(lb.Text)) {
+	} else if bCur < 0 || bCur > int64(len(lb.Text)) {
 		return left, right, ErrorIndexOutofbound
-	} else if dot == 0 {
+	} else if bCur == 0 {
 		return nil, lb, nil
-	} else if dot == int64(len(lb.Text)) {
+	} else if bCur == int64(len(lb.Text)) {
 		return lb, nil, nil
 	}
-	l, r := make([]rune, dot), make([]rune, int64(len(lb.Text))-dot)
-	copy(l, lb.Text[:dot])
-	copy(r, lb.Text[dot:])
+	lsize, rsize := bCur, int64(len(lb.Text))-bCur
+	l, r := make([]byte, lsize), make([]byte, rsize)
+	copy(l, lb.Text[:lsize])
+	copy(r, lb.Text[lsize:])
 	return NewLinearBuffer(l), NewLinearBuffer(r), nil
 }
 
 // Insert implement Buffer{} interface.
-func (lb *LinearBuffer) Insert(dot int64, text []rune) (*LinearBuffer, error) {
+func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
+	textb := []byte(string(text)) // TODO: this could be inefficient.
 	if text == nil {
 		return lb, nil
 	} else if lb == nil {
-		return NewLinearBuffer(text), nil
+		return NewLinearBuffer(textb), nil
 	}
 
-	left, right, err := lb.Split(dot)
+	left, right, err := lb.Split(bCur)
 	if err != nil {
 		return nil, err
 	}
 	if left == nil {
-		left = NewLinearBuffer([]rune(""))
+		left = NewLinearBuffer([]byte(""))
 	}
 	if right == nil {
-		right = NewLinearBuffer([]rune(""))
+		right = NewLinearBuffer([]byte(""))
 	}
-	newlb := make([]rune, len(lb.Text)+len(text))
+	newlb := make([]byte, len(lb.Text)+len(textb))
 	copy(newlb, left.Text)
-	copy(newlb[len(left.Text):], text)
-	copy(newlb[len(left.Text)+len(text):], right.Text)
+	copy(newlb[len(left.Text):], textb)
+	copy(newlb[len(left.Text)+len(textb):], right.Text)
 	return NewLinearBuffer(newlb), nil
 }
 
 // InsertIO implement Buffer{} interface.
-func (lb *LinearBuffer) InsertIO(dot int64, text []rune) (*LinearBuffer, error) {
-	return lb.Insert(dot, text)
+func (lb *LinearBuffer) InsertIO(bCur int64, text []rune) (*LinearBuffer, error) {
+	return lb.Insert(bCur, text)
 }
 
 // Delete implement Buffer{} interface.
-func (lb *LinearBuffer) Delete(dot, n int64) (*LinearBuffer, error) {
+func (lb *LinearBuffer) Delete(bCur, Rn int64) (*LinearBuffer, error) {
 	if lb == nil {
 		return nil, ErrorBufferNil
-	} else if dot < 0 || dot > int64(len(lb.Text)-1) {
-		return nil, ErrorIndexOutofbound
-	} else if end := dot + n; end < 0 || end > int64(len(lb.Text)) {
+	} else if bCur < 0 || bCur > int64(len(lb.Text)-1) {
 		return nil, ErrorIndexOutofbound
 	}
-	newt := make([]rune, int64(len(lb.Text))-n)
-	copy(newt[:dot], lb.Text[:dot])
-	copy(newt[dot:], lb.Text[dot+n:])
+	_, size, err := lb.RuneSlice(bCur, Rn)
+	if err != nil {
+		return nil, err
+	} else if end := bCur + size; end < 0 || end > int64(len(lb.Text)) {
+		return nil, ErrorIndexOutofbound
+	}
+	newt := make([]byte, int64(len(lb.Text))-size)
+	copy(newt[:bCur], lb.Text[:bCur])
+	copy(newt[bCur:], lb.Text[bCur+size:])
 	newlb := NewLinearBuffer(newt)
 	return newlb, nil
 }
 
 // DeleteIO implement Buffer{} interface.
-func (lb *LinearBuffer) DeleteIO(dot, n int64) (*LinearBuffer, error) {
-	return lb.Delete(dot, n)
+func (lb *LinearBuffer) DeleteIO(bCur, n int64) (*LinearBuffer, error) {
+	return lb.Delete(bCur, n)
 }
 
 // Stats implement Buffer{} interface.

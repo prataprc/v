@@ -1,16 +1,8 @@
 package buffer
 
 import "fmt"
-import "errors"
 
 var _ = fmt.Sprintf("dummy")
-
-// ErrorBufferNil says buffer is not initialized.
-var ErrorBufferNil = errors.New("buffer.uninitialized")
-
-// ErrorIndexOutofbound says access to buffer is outside its
-// size.
-var ErrorIndexOutofbound = errors.New("buffer.indexOutofbound")
 
 type Statistics map[string]interface{}
 
@@ -18,61 +10,56 @@ type Statistics map[string]interface{}
 // buffer can be implemented as linear array, gap-buffer,
 // rope-buffer etc.
 //
-// Within a buffer all text is unicode and represented
-// as rune.
-// - characters can enter buffer, via cmd, only as rune.
-// - characters exit buffer only as rune.
+// Within a buffer text is maintained as byte-array.
 //
-// Dot - is the cursor within the buffer starting from 0,
-// where a value of N means there are N runes before the
-// cursor,
-// 0 means start
-// z len(buffer) means end
+// bCur - unicode aligned cursor within the buffer starting from 0,
+// where a value of N means there are N bytes before the
+// cursor, 0 means start and z len(buffer) means.
 type Buffer interface {
-	// Length return no. of runes in buffer.
+	// Length return no. of bytes in buffer.
 	Length() (l int64, err error)
 
-	// Value returns full content in buffer.
-	Value() []rune
+	// Value returns full content in buffer as byte-array.
+	Value() []byte
 
-	// Index retrieves the rune at dot, where
-	// dot starts from 0 till length of buffer.
-	// if buffer size is 22
-	// 0 - returns the first rune in buffer.
+	// Slice return a substring of length Bn bytes after
+	// bCur number of bytes from start.
+	Slice(bCur, Bn int64) (val []byte, err error)
+
+	// RuneAt retrieves the rune at bCur and no.of bytes to
+	// decode rune, where bCur starts from 0 till length of
+	// buffer. If buffer size is 22
+	// 0  - returns the first rune in buffer.
 	// 21 - returns the last rune in buffer.
-	// 22 - return ok as false.
-	Index(dot int64) (ch rune, ok bool, err error)
+	// 22 - return ErrorIndexOutofbound
+	RuneAt(bCur int64) (ch rune, size bool, err error)
 
-	// Substr return a substring of length N after dot
-	// number of runes from buffer.
-	Substr(dot int64, N int64) (val []rune, err error)
+	// Runes return full content in buffer as rune-array.
+	Runes() ([]byte, error)
+
+	// RuneSlice return a substring of length Rn runes after
+	// bCur number of bytes from start. It also returns the
+	// no.of bytes consume to decode Rn runes.
+	RuneSlice(bCur, Rn int64) (runes []rune, size int64, err error)
 
 	// Concat adds another buffer element adjacent to the
 	// current buffer.
 	Concat(other *Buffer) (buf Buffer, err error)
 
-	// Split this buffer at dot, and return two equivalent buffer
-	// elements, a dot of value N would mean N elements to the
+	// Split this buffer at bCur, and return two equivalent buffer
+	// elements, a bCur of value Bn would mean Bn bytes to the
 	// left buffer.
-	Split(dot int64) (left Buffer, right Buffer, err error)
+	Split(bCur int64) (left Buffer, right Buffer, err error)
 
-	// Insert addes one or more runes at dot, semantically
-	// pushing the runes at the dot to the right. Returns a
+	// Insert addes one or more runes at bCur, semantically
+	// pushing the runes at the bCur to the right. Returns a
 	// new reference without creating side-effects.
-	Insert(dot int64, text []rune) (buf Buffer, err error)
+	Insert(bCur int64, text []rune) (buf Buffer, err error)
 
-	// Delete generates a new buffer by deleting N runes from
-	// the original buffer after dot. Returns a new reference
+	// Delete generates a new buffer by deleting Rn runes from
+	// the original buffer after bCur. Returns a new reference
 	// without creating side-effects.
-	Delete(dot int64, N int64) (buf Buffer, err error)
-
-	// InsertIO same as Insert() except that it modifies the
-	// buffer and returns the same buffer reference.
-	InsertIO(dot int64, text []rune) (buf Buffer, err error)
-
-	// DeleteIO same as Delete() except that it modifies the
-	// buffer and returns the same buffer reference.
-	DeleteIO(dot int64, N int64) (buf Buffer, err error)
+	Delete(bCur int64, Rn int64) (buf Buffer, err error)
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)
