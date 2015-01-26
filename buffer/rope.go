@@ -4,8 +4,6 @@ import "fmt"
 import "math"
 import "unicode/utf8"
 
-var _ = fmt.Sprintf("dummy")
-
 var RopeBufferCapacity = int64(64)
 
 // RopeBuffer represents a persistent rope data structure.
@@ -24,7 +22,9 @@ type RopeBuffer struct { // buffer implementation.
 // boundary.
 func NewRopebuffer(text []byte, capacity int64) (*RopeBuffer, error) {
 	l := int64(len(text))
-	rb := &RopeBuffer{Text: text, Weight: l, Len: l, Cap: capacity}
+	newt := make([]byte, l)
+	copy(newt, text)
+	rb := &RopeBuffer{Text: newt, Weight: l, Len: l, Cap: capacity}
 	return rb.build(capacity)
 }
 
@@ -35,6 +35,10 @@ func NewRopeLevel(length int64, left, right *RopeBuffer) *RopeBuffer {
 	return &RopeBuffer{
 		Weight: left.Len, Len: length, Left: left, Right: right, Cap: left.Cap,
 	}
+}
+
+func (rb *RopeBuffer) String() string {
+	return fmt.Sprintf("{W%d L%d C%d}", rb.Weight, rb.Len, rb.Cap)
 }
 
 //----------------------
@@ -94,14 +98,14 @@ func (rb *RopeBuffer) RuneAt(bCur int64) (ch rune, size int64, err error) {
 
 // Runes implement Buffer{} interface.
 func (rb *RopeBuffer) Runes() ([]rune, error) {
-	acc := make([]rune, 0, rb.Len/8)
-	_, size, err := rb.runes(0, rb.Len, acc)
+	acc := make([]rune, rb.Len)
+	count, size, err := rb.runes(0, rb.Len, acc)
 	if err != nil {
 		return nil, err
 	} else if size != rb.Len {
 		panic("mismatch in decoded bytes and length")
 	}
-	return acc, nil
+	return acc[:count], nil
 }
 
 // RuneSlice implement Buffer{} interface.
@@ -110,16 +114,18 @@ func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 		return nil, 0, ErrorBufferNil
 	} else if bCur < 0 || bCur > rb.Len {
 		return nil, 0, ErrorIndexOutofbound
+	} else if rn == 0 {
+		return []rune{}, 0, nil
 	}
 
-	acc := make([]rune, 0, rn)
+	acc := make([]rune, rn)
 	count, size, err := rb.runes(bCur, rn, acc)
 	if err != nil {
 		return nil, 0, err
 	} else if count < rn && bCur+size != rb.Len {
 		panic("mismatch in decoded bytes and length")
 	}
-	return acc, size, nil
+	return acc[:count], size, nil
 }
 
 // Concat implement Buffer{} interface.
@@ -179,10 +185,10 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 
 	}
 
-	_, size, err := rb.RuneSlice(bCur, rn)
+	runes, size, err := rb.RuneSlice(bCur, rn)
 	if err != nil {
 		return rb, err
-	} else if end := bCur + size; end < 0 || end > int64(rb.Len) {
+	} else if int64(len(runes)) < rn {
 		return rb, ErrorIndexOutofbound
 	}
 
@@ -322,18 +328,25 @@ func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, err
 		return count, size, nil
 
 	} else if bCur > rb.Weight { // recurse to right
-		return rb.Right.runes(bCur-rb.Weight, rn, acc)
-
-	} else { // else split the work
-		lcount, lsize, err := rb.Left.runes(bCur, rn, acc)
-		if err != nil {
-			return 0, 0, err
-		} else if bCur+lsize != rb.Weight {
-			panic("mismatch in boundary")
-		}
-		rcount, rsize, err := rb.Right.runes(bCur+lsize, rn-lcount, acc[lcount:])
-		return lcount + rcount, lsize + rsize, err
+		count, size, err := rb.Right.runes(bCur-rb.Weight, rn, acc[:rn])
+		return count, size, err
 	}
+	// else split the work
+	lcount, lsize, err := rb.Left.runes(bCur, rn, acc)
+	if err != nil {
+		return 0, 0, err
+
+	} else if lcount < rn {
+		if bCur+lsize != rb.Weight {
+			err := fmt.Errorf(
+				"mismatch in boundary %v, but %v", rb.Weight, bCur+lsize)
+			panic(err)
+		}
+		rcount, rsize, err := rb.Right.runes(0, rn-lcount, acc[lcount:rn])
+		return lcount + rcount, lsize + rsize, err
+
+	}
+	return lcount, lsize, err
 }
 
 func (rb *RopeBuffer) stats(depth int64, s rbStats) {
@@ -346,6 +359,20 @@ func (rb *RopeBuffer) stats(depth int64, s rbStats) {
 		s.incNodes()
 		rb.Left.stats(depth+1, s)
 		rb.Right.stats(depth+1, s)
+	}
+}
+
+func (rb *RopeBuffer) printTree(prefix string) {
+	if rb.isLeaf() {
+		fmt.Printf("%sleaf %s\n", prefix, rb.String())
+	} else {
+		fmt.Printf("%s%s\n", prefix, rb.String())
+		if rb.Left != nil {
+			rb.Left.printTree(prefix + "  ")
+		}
+		if rb.Right != nil {
+			rb.Right.printTree(prefix + "  ")
+		}
 	}
 }
 

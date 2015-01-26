@@ -6,10 +6,8 @@ import "fmt"
 import "log"
 import "math/rand"
 
-var _ = fmt.Sprintf("dummy")
-
-var testRopeBufferCapacity = int64(10 * 1024)
-var sampleData []byte
+var testRopeBufferCapacity = int64(10 * 1024) // 10KB nodes in rope.
+var sampleData []byte                         // contains 2.5MB data.
 
 func init() {
 	var err error
@@ -20,7 +18,10 @@ func init() {
 }
 
 func TestRopeSample256(t *testing.T) {
-	rb := NewRopebuffer([]rune(string(sampleData)), 256)
+	rb, err := NewRopebuffer(sampleData, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stats := rb.Stats()
 	length := validateRopeBuild(t, stats)
 	if l := int64(len(sampleData)); length != l {
@@ -29,7 +30,10 @@ func TestRopeSample256(t *testing.T) {
 }
 
 func TestRopeSample1MB(t *testing.T) {
-	rb := NewRopebuffer([]rune(string(sampleData)), 1024*1024)
+	rb, err := NewRopebuffer(sampleData, 1024*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stats := rb.Stats()
 	length := validateRopeBuild(t, stats)
 	if l := int64(len(sampleData)); length != l {
@@ -38,28 +42,40 @@ func TestRopeSample1MB(t *testing.T) {
 }
 
 func TestRopeIndex(t *testing.T) {
-	rb := NewRopebuffer([]rune("hello world"), 2)
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := validateRead(rb, nil); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestRopeSubstr(t *testing.T) {
-	rb := NewRopebuffer([]rune("hello world"), 2)
-	if err := validateSubstr(rb); err != nil {
+func TestRopeRuneSlice(t *testing.T) {
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRuneSlice(rb); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRopeDicing(t *testing.T) {
-	rb := NewRopebuffer([]rune("hello world"), 2)
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := validateDicing(rb); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRopeInsertBasic(t *testing.T) {
-	rb := NewRopebuffer([]rune("hello world"), 2)
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// before begin
 	if _, err := rb.Insert(-1, []rune("a")); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
@@ -101,8 +117,11 @@ func TestRopeInsertBasic(t *testing.T) {
 func TestRopeInsertMany(t *testing.T) {
 	var err error
 
-	rb := NewRopebuffer([]rune("hello world"), 2)
-	lb := NewLinearBuffer([]rune("hello world"))
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lb := NewLinearBuffer([]byte("hello world"))
 	lenrb := len(rb.Value())
 	insVals := [][]rune{[]rune(""), []rune("a"), []rune("alpha")}
 	for i := 0; i < 100; i++ {
@@ -127,7 +146,10 @@ func TestRopeInsertMany(t *testing.T) {
 }
 
 func TestRopeDeleteBasic(t *testing.T) {
-	rb := NewRopebuffer([]rune("hello world"), 2)
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// before begin
 	if _, err := rb.Delete(-1, 0); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
@@ -150,7 +172,8 @@ func TestRopeDeleteBasic(t *testing.T) {
 		t.Fatal(err)
 		// at middle
 	} else if _, err = rb.Delete(3, 4); err != ErrorIndexOutofbound {
-		t.Fatalf("expecting err ErrorIndexOutofbound")
+		t.Log(string(rb.Value()))
+		t.Fatalf("expecting err ErrorIndexOutofbound, got %v", err)
 	} else if err = validateRead(rb, []rune("eorld")); err != nil {
 		t.Fatal(err)
 		// at end
@@ -168,7 +191,10 @@ func TestRopeDeleteBasic(t *testing.T) {
 
 func TestRopePersistence(t *testing.T) {
 	var err error
-	rb := NewRopebuffer([]rune("hello world"), 2)
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	lb := NewLinearBuffer(rb.Value())
 	history := map[*RopeBuffer]bool{rb: true}
 	for i := 0; i < 100; i++ {
@@ -187,33 +213,37 @@ func TestRopePersistence(t *testing.T) {
 			}
 		}
 		history[rb] = true
-		if err := validateRead(rb, lb.Value()); err != nil {
+		ref, err := lb.Runes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateRead(rb, ref); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
 
 func BenchmarkRopeSample8(b *testing.B) {
-	runes := []rune(string(sampleData))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewRopebuffer(runes, 8)
+		NewRopebuffer(sampleData, 8)
 	}
 	b.SetBytes(int64(len(sampleData)))
 }
 
 func BenchmarkRopeSample256(b *testing.B) {
-	runes := []rune(string(sampleData))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		NewRopebuffer(runes, 256)
+		NewRopebuffer(sampleData, 256)
 	}
 	b.SetBytes(int64(len(sampleData)))
 }
 
 func BenchmarkRopeLength(b *testing.B) {
-	runes := []rune(string(sampleData))
-	rb := NewRopebuffer(runes, testRopeBufferCapacity)
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		rb.Length()
@@ -221,40 +251,47 @@ func BenchmarkRopeLength(b *testing.B) {
 }
 
 func BenchmarkRopeValue(b *testing.B) {
-	runes := []rune(string(sampleData))
-	rb := NewRopebuffer(runes, testRopeBufferCapacity)
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		rb.Value()
 	}
 }
 
-func BenchmarkRopeIndex(b *testing.B) {
-	runes := []rune(string(sampleData))
-	rb := NewRopebuffer(runes, testRopeBufferCapacity)
+func BenchmarkRopeRuneAt(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rb.Index(1024 * 512)
+		rb.RuneAt(1024 * 512)
 	}
 }
 
-func BenchmarkRopeSubstr(b *testing.B) {
-	runes := []rune(string(sampleData))
-	rb := NewRopebuffer(runes, testRopeBufferCapacity)
+func BenchmarkRopeRuneSlice(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rb.Substr(1024*512, 10000)
+		rb.RuneSlice(1024*512, 10000)
 	}
 }
 
 func BenchmarkRopeInsert(b *testing.B) {
-	runes := []rune(string(sampleData))
-	rb := NewRopebuffer(runes, testRopeBufferCapacity)
-	s, err := rb.Substr(0, 10000)
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
 	if err != nil {
 		b.Fatal(err)
 	}
-	runes = []rune(s)
+	runes, _, err := rb.RuneSlice(0, 10000)
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		rb.Insert(1024*512, runes)
@@ -295,12 +332,8 @@ func validateRopeBuild(t *testing.T, stats map[string]interface{}) int64 {
 		t.Fatalf("unexpected length/capacity: %v/%v", length, capacity)
 	}
 	leafs := stats["leafs"].(int64)
-	if ref := 2 << (uint64(maxLevel) - 2); int64(ref) != leafs {
+	if ref := 1 << (uint64(maxLevel) - 1); int64(ref) != leafs {
 		t.Fatalf("unexpected leafs %v, got %v", ref, leafs)
-	}
-	nodes := stats["nodes"].(int64)
-	if ref := (2 << (uint64(maxLevel) - 2)) - 1; int64(ref) != nodes {
-		t.Fatalf("unexpected leafs %v, got %v", ref, nodes)
 	}
 	return length
 }
@@ -319,41 +352,49 @@ func validateRead(rb *RopeBuffer, ref []rune) error {
 		}
 		// verify index
 		for i, x := range ref {
-			if y, ok, err := rb.Index(int64(i)); err != nil {
+			if y, size, err := rb.RuneAt(int64(i)); err != nil {
 				return err
-			} else if !ok {
+			} else if size == 0 {
 				return fmt.Errorf("expecting rune at %d for %q", i, string(ref))
 			} else if x != y {
 				return fmt.Errorf("expecting %v, got %v at %d", x, y, i)
 			}
 		}
 		// out of bound index
-		if _, _, err := rb.Index(-1); err != ErrorIndexOutofbound {
+		if _, _, err := rb.RuneAt(-1); err != ErrorIndexOutofbound {
 			return fmt.Errorf("expecting ErrorIndexOutofbound at -1")
 		}
 		// out of bound index
-		_, _, err := rb.Index(int64(len(ref)))
+		_, _, err := rb.RuneAt(int64(len(ref)))
 		if err != ErrorIndexOutofbound {
 			return fmt.Errorf("expecting ErrorIndexOutofbound at %d", len(ref))
 		}
 		// verify substr
 		for dot := 0; dot < len(ref); dot++ {
 			for n := 0; n < len(ref)-dot; n++ {
-				s, err := rb.Substr(int64(dot), int64(n))
+				runes1, _, err := rb.RuneSlice(int64(dot), int64(n))
 				if err != nil {
 					return err
 				}
-				if string(s) != string(ref[dot:dot+n]) {
+				if string(runes1) != string(ref[dot:dot+n]) {
 					msg := "expecting %q, got %q"
-					return fmt.Errorf(msg, string(s), string(ref[dot:n]))
+					return fmt.Errorf(msg, string(runes1), string(ref[dot:n]))
 				}
 			}
 		}
 	}
 
 	lb := NewLinearBuffer(rb.Value())
-	ref = lb.Value()
-	if x, y := string(rb.Value()), string(ref); x != y {
+	ref, err := lb.Runes()
+	if err != nil {
+		return err
+	}
+	rbRunes, err := rb.Runes()
+	if err != nil {
+		return err
+	}
+
+	if x, y := string(rbRunes), string(ref); x != y {
 		return fmt.Errorf("mismatch in value %q, got %q", x, y)
 	}
 
@@ -362,28 +403,28 @@ func validateRead(rb *RopeBuffer, ref []rune) error {
 		return err
 	}
 	if length == 0 {
-		if _, ok, err := rb.Index(0); err == nil || ok == true {
+		if _, size, err := rb.RuneAt(0); err == nil || size > 0 {
 			return fmt.Errorf("expecting error")
 		}
-		if _, ok, err := rb.Index(1); err == nil || ok == true {
+		if _, size, err := rb.RuneAt(1); err == nil || size > 0 {
 			return fmt.Errorf("expecting error")
 		}
 	} else {
 		for _, dot := range []int64{0, length / 2, length - 1} {
-			if ch, ok, err := rb.Index(dot); err != nil {
+			if ch, size, err := rb.RuneAt(dot); err != nil {
 				return err
-			} else if ok == false {
-				return fmt.Errorf("ok is false for dot %v ch %v", dot, ref[dot])
+			} else if size == 0 {
+				return fmt.Errorf("decoded 0 bytes at %v ch %v", dot, ref[dot])
 			} else if ch != ref[dot] {
 				return fmt.Errorf("mismatch for ch %v, got %v", ref[dot], ch)
 			}
 		}
-		if _, ok, err := rb.Index(length); err == nil || ok == true {
+		if _, size, err := rb.RuneAt(length); err == nil || size > 0 {
 			return fmt.Errorf("expecting error for %v", length)
 		}
 	}
 
-	return validateSubstr(rb)
+	return validateRuneSlice(rb)
 }
 
 func validateDicing(rbRef *RopeBuffer) error {
@@ -410,7 +451,7 @@ func validateDicing(rbRef *RopeBuffer) error {
 	return nil
 }
 
-func validateSubstr(rbRef *RopeBuffer) error {
+func validateRuneSlice(rbRef *RopeBuffer) error {
 	x := rbRef.Value()
 	lenx := len(x)
 
@@ -423,15 +464,15 @@ func validateSubstr(rbRef *RopeBuffer) error {
 	}
 	for _, arg := range argList {
 		dot, n := arg[0], arg[1]
-		a, err := rbRef.Substr(dot, n)
+		rbRunes, _, err := rbRef.RuneSlice(dot, n)
 		if err != nil {
 			return fmt.Errorf("rb at %d size %d for %q", dot, n, string(x))
 		}
-		b, err := lb.Substr(dot, n)
+		lbRunes, _, err := lb.RuneSlice(dot, n)
 		if err != nil {
 			return fmt.Errorf("lb at %d size %d for %q", dot, n, string(x))
 		}
-		if a != b {
+		if string(rbRunes) != string(lbRunes) {
 			return fmt.Errorf("at %d size %d for %q", dot, n, string(x))
 		}
 	}

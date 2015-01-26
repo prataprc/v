@@ -32,7 +32,7 @@ type Buffer interface {
 	// 0  - returns the first rune in buffer.
 	// 21 - returns the last rune in buffer.
 	// 22 - return ErrorIndexOutofbound
-	RuneAt(bCur int64) (ch rune, size bool, err error)
+	RuneAt(bCur int64) (ch rune, size int, err error)
 
 	// Runes return full content in buffer as rune-array.
 	Runes() ([]byte, error)

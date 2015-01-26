@@ -12,19 +12,19 @@ func getRuneStart(text []byte) (int64, error) {
 }
 
 func bytes2RunesN(bs []byte, rn int64, acc []rune) (int64, int64, error) {
-	n, count := int64(0), int64(0)
-	for n < int64(len(bs)) {
-		r, sz := utf8.DecodeRune(bs[n:])
+	size, count := int64(0), int64(0)
+	for size < int64(len(bs)) {
+		r, sz := utf8.DecodeRune(bs[size:])
 		if r == utf8.RuneError {
 			return 0, 0, ErrorInvalidEncoding
 		}
-		acc = append(acc, r)
-		n, count = n+int64(sz), count+1
+		acc[count] = r
+		size, count = size+int64(sz), count+1
 		if count >= rn {
-			return count, n, nil
+			return count, size, nil
 		}
 	}
-	return count, n, nil
+	return count, size, nil
 }
 
 func bytes2Runes(bs []byte) ([]rune, error) {
