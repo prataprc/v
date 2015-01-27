@@ -9,6 +9,7 @@ import "os"
 import "time"
 import "sync"
 import "reflect"
+import "runtime/debug"
 
 import "github.com/prataprc/monster"
 import "github.com/prataprc/goparsec"
@@ -128,6 +129,14 @@ func main() {
 
 func testCommands(s string, ch chan bool) {
 	var cmds []interface{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(r, "seed:", options.seed)
+			fmt.Println(string(debug.Stack()))
+			os.Exit(1)
+		}
+	}()
 
 	err := json.Unmarshal([]byte(s), &cmds)
 	if err != nil {
