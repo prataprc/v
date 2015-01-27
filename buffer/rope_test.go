@@ -1,10 +1,11 @@
 package buffer
 
 import "testing"
-import "io/ioutil"
+import "io"
 import "fmt"
 import "log"
 import "math/rand"
+import "io/ioutil"
 
 var testRopeBufferCapacity = int64(10 * 1024) // 10KB nodes in rope.
 var sampleData []byte                         // contains 2.5MB data.
@@ -190,7 +191,6 @@ func TestRopeDeleteBasic(t *testing.T) {
 }
 
 func TestRopePersistence(t *testing.T) {
-	var err error
 	rb, err := NewRopebuffer([]byte("hello world"), 2)
 	if err != nil {
 		t.Fatal(err)
@@ -219,6 +219,30 @@ func TestRopePersistence(t *testing.T) {
 		}
 		if err := validateRead(rb, ref); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestRopeStreamFrom(t *testing.T) {
+	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := -1; int64(i) < rb.Len+1; i++ {
+		var r rune
+		runes := make([]rune, 0)
+		reader := rb.StreamFrom(int64(i))
+		r, _, err := reader.ReadRune()
+		for err != io.EOF {
+			runes = append(runes, r)
+			r, _, err = reader.ReadRune()
+		}
+		if i == -1 || int64(i) == rb.Len {
+			if len(runes) != 0 {
+				t.Fatalf("mismatch for %d %q", i, string(runes))
+			}
+		} else if x, y := string(runes), string(rb.Value()[i:]); x != y {
+			t.Fatalf("mismatch for %d %q %q", i, x, y)
 		}
 	}
 }
@@ -314,6 +338,21 @@ func BenchmarkStr2Runes(b *testing.B) {
 		text = []rune(string(sampleData))
 	}
 	b.SetBytes(int64(len(text)))
+}
+
+func BenchmarkStreamFrom(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		reader := rb.StreamFrom(int64(i))
+		_, _, err := reader.ReadRune()
+		for err != io.EOF {
+			_, _, err = reader.ReadRune()
+		}
+	}
+	b.SetBytes(int64(len(sampleData)))
 }
 
 func validateRopeBuild(t *testing.T, stats map[string]interface{}) int64 {

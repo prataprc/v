@@ -1,6 +1,7 @@
 package buffer
 
 import "fmt"
+import "io"
 import "math"
 import "unicode/utf8"
 
@@ -55,6 +56,11 @@ func (rb *RopeBuffer) Length() (l int64, err error) {
 
 // Value implement Buffer{} interface.
 func (rb *RopeBuffer) Value() []byte {
+	if rb == nil {
+		return nil
+	} else if rb.Len == 0 {
+		return []byte{}
+	}
 	acc := make([]byte, rb.Len)
 	rb.value(0, rb.Len, acc)
 	return acc
@@ -64,6 +70,8 @@ func (rb *RopeBuffer) Value() []byte {
 func (rb *RopeBuffer) Slice(bCur, bn int64) ([]byte, error) {
 	if rb == nil {
 		return nil, nil
+	} else if bn == 0 || rb.Len == 0 {
+		return []byte{}, nil
 	} else if bCur < 0 || bCur > rb.Len {
 		return nil, ErrorIndexOutofbound
 	} else if bCur+bn > rb.Len {
@@ -205,11 +213,40 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 	return left.Concat(right)
 }
 
+// StreamFrom implement Buffer interface{}.
+func (rb *RopeBuffer) StreamFrom(bCur int64) io.RuneReader {
+	return rb.runeIterator(bCur)
+}
+
 // Stats implement Buffer{} interface.
 func (rb *RopeBuffer) Stats() rbStats {
 	s := newRBStatistics()
 	rb.stats(1, s)
 	return s
+}
+
+// JohnnieWalker gets called for every leaf node in the
+// rope-tree.
+type JohnnieWalker func(bCur int64, rb *RopeBuffer)
+
+// Walk the rope-tree starting from `bCur`.
+func (rb *RopeBuffer) Walk(bCur int64, walkFn JohnnieWalker) {
+	if rb.isLeaf() && bCur < rb.Len {
+		walkFn(bCur, rb)
+
+	} else if !rb.isLeaf() {
+		if bCur >= rb.Weight {
+			rb.Right.Walk(bCur-rb.Weight, walkFn)
+
+		} else {
+			if rb.Left != nil {
+				rb.Left.Walk(bCur, walkFn)
+			}
+			if rb.Right != nil {
+				rb.Right.Walk(0, walkFn)
+			}
+		}
+	}
 }
 
 //----------------
@@ -304,20 +341,24 @@ func (rb *RopeBuffer) split(bCur int64, right *RopeBuffer) (*RopeBuffer, *RopeBu
 }
 
 func (rb *RopeBuffer) value(bCur int64, n int64, acc []byte) {
-	if bCur > rb.Weight { // recurse to right
+	if bCur >= rb.Weight { // recurse to right
 		rb.Right.value(bCur-rb.Weight, n, acc)
 
 	} else if rb.Weight >= bCur+n { // the left branch has enough values
 		if rb.isLeaf() {
 			copy(acc, rb.Text[bCur:bCur+n])
-		} else {
+		} else if rb.Left != nil {
 			rb.Left.value(bCur, n, acc)
 		}
 
 	} else { // else split the work
 		leftN := rb.Weight - bCur
-		rb.Left.value(bCur, leftN, acc[:leftN])
-		rb.Right.value(0, n-leftN, acc[leftN:])
+		if rb.Left != nil {
+			rb.Left.value(bCur, leftN, acc[:leftN])
+		}
+		if rb.Right != nil {
+			rb.Right.value(0, n-leftN, acc[leftN:])
+		}
 	}
 }
 
@@ -329,7 +370,7 @@ func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, err
 		}
 		return count, size, nil
 
-	} else if bCur > rb.Weight { // recurse to right
+	} else if bCur >= rb.Weight { // recurse to right
 		count, size, err := rb.Right.runes(bCur-rb.Weight, rn, acc[:rn])
 		return count, size, err
 	}
@@ -346,7 +387,6 @@ func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, err
 		}
 		rcount, rsize, err := rb.Right.runes(0, rn-lcount, acc[lcount:rn])
 		return lcount + rcount, lsize + rsize, err
-
 	}
 	return lcount, lsize, err
 }
@@ -361,6 +401,44 @@ func (rb *RopeBuffer) stats(depth int64, s rbStats) {
 		s.incNodes()
 		rb.Left.stats(depth+1, s)
 		rb.Right.stats(depth+1, s)
+	}
+}
+
+// iterate on runes in buffer starting from `bCur`.
+func (rb *RopeBuffer) runeIterator(bCur int64) iterator {
+	ch := make(chan []interface{})
+
+	go func() {
+		rb.Walk(bCur, func(bCur int64, leaf *RopeBuffer) {
+			ch <- []interface{}{bCur, leaf}
+		})
+		close(ch)
+	}()
+
+	nextLeaf := func() (int64, *RopeBuffer) {
+		iterVal, ok := <-ch
+		if ok {
+			off, leaf := iterVal[0].(int64), iterVal[1].(*RopeBuffer)
+			return off, leaf
+		}
+		return 0, nil
+	}
+
+	off, leaf := nextLeaf()
+	return func() (r rune, size int, err error) {
+		if leaf == nil || off < 0 {
+			return r, size, io.EOF
+
+		} else if off < leaf.Len {
+			r, size = utf8.DecodeRune(leaf.Text[off:])
+			off += int64(size)
+			if off == leaf.Len {
+				off, leaf = nextLeaf()
+			}
+			return r, size, nil
+
+		}
+		panic("impossible situation")
 	}
 }
 

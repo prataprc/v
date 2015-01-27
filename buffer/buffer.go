@@ -61,6 +61,17 @@ type Buffer interface {
 	// without creating side-effects.
 	Delete(bCur int64, Rn int64) (buf Buffer, err error)
 
+	// StreamFrom returns a RuneReader starting from `bCur`.
+	//StreamFrom(bCur int64) io.RuneReader
+
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)
+}
+
+// iterator implements io.RuneReader interface{}.
+type iterator func() (r rune, size int, err error)
+
+// ReadRune implements io.RuneReader interface{}.
+func (fn iterator) ReadRune() (rune, int, error) {
+	return fn()
 }

@@ -1,9 +1,14 @@
 package buffer
 
 import "fmt"
+import "io"
 import "unicode/utf8"
 
 var _ = fmt.Sprintf("dummy")
+
+type LinearRuneReader struct {
+	lb *LinearBuffer
+}
 
 // LinearBuffer represents mutable sequence of runes as buffer.
 type LinearBuffer struct {
@@ -170,6 +175,18 @@ func (lb *LinearBuffer) Delete(bCur, Rn int64) (*LinearBuffer, error) {
 	copy(newt[bCur:], lb.Text[bCur+size:])
 	newlb := NewLinearBuffer(newt)
 	return newlb, nil
+}
+
+// StreamFrom implement Buffer interface{}.
+func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
+	return iterator(func() (r rune, size int, err error) {
+		if bCur > int64(len(lb.Text)) {
+			return r, size, io.EOF
+		}
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
+		bCur += int64(size)
+		return r, size, nil
+	})
 }
 
 // DeleteIO implement Buffer{} interface.
