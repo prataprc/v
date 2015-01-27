@@ -8,6 +8,7 @@ import "log"
 import "os"
 import "time"
 import "sync"
+import "reflect"
 
 import "github.com/prataprc/monster"
 import "github.com/prataprc/goparsec"
@@ -72,8 +73,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	lb := buffer.NewLinearBuffer([]rune(""))
-	rb := buffer.NewRopebuffer([]rune(""), buffer.RopeBufferCapacity)
+	lb := buffer.NewLinearBuffer([]byte(""))
+	rb, err := buffer.NewRopebuffer([]byte(""), buffer.RopeBufferCapacity)
+	if err != nil {
+		log.Fatal(err)
+	}
 	setds(lb, rb)
 	ch := make(chan bool, options.count)
 	n := int64(0)
@@ -159,7 +163,7 @@ func testCommand(
 		lb, rb, err = testDelete(
 			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
 	case "index":
-		lb, rb, err = testIndex(int64(cmd[1].(float64)), lb, rb)
+		lb, rb, err = testRuneAt(int64(cmd[1].(float64)), lb, rb)
 	case "length":
 		lb, rb, err = testLength(lb, rb)
 	case "value":
@@ -213,19 +217,19 @@ func testDelete(
 	return lb1, rb1, nil
 }
 
-func testIndex(
+func testRuneAt(
 	dot int64,
 	lb *buffer.LinearBuffer,
 	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
 
-	ch1, ok1, err1 := lb.Index(dot)
-	ch2, ok2, err2 := rb.Index(dot)
+	ch1, size1, err1 := lb.RuneAt(dot)
+	ch2, size2, err2 := rb.RuneAt(dot)
 	if err1 != nil || err2 != nil {
 		incrStat(err1.Error())
 		if err1 != err2 {
 			return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
-		} else if ok1 != ok2 {
-			return nil, nil, fmt.Errorf("mismatch in ok %v, %v", ok1, ok2)
+		} else if size1 != size2 {
+			return nil, nil, fmt.Errorf("mismatch in size %v, %v", size1, size2)
 		} else if ch1 != ch2 {
 			return nil, nil, fmt.Errorf("mismatch in ch %v, %v", ch1, ch2)
 		}
@@ -266,13 +270,16 @@ func testSubstr(
 	lb *buffer.LinearBuffer,
 	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
 
-	s1, err1 := lb.Substr(dot, size)
-	s2, err2 := rb.Substr(dot, size)
+	rs1, size1, err1 := lb.RuneSlice(dot, size)
+	rs2, size2, err2 := rb.RuneSlice(dot, size)
 	if err1 != nil || err2 != nil {
 		incrStat(err1.Error())
 		if err1 != err2 {
 			return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
-		} else if s1 != s2 {
+		} else if size1 != size2 {
+			return nil, nil, fmt.Errorf("mismatch in size %v, %v", size1, size2)
+		} else if !reflect.DeepEqual(rs1, rs2) {
+			s1, s2 := string(rs1), string(rs2)
 			return nil, nil, fmt.Errorf("mismatch in substr %v, %v", s1, s2)
 		}
 	}
