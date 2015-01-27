@@ -76,7 +76,7 @@ func (rb *RopeBuffer) Slice(bCur, bn int64) ([]byte, error) {
 }
 
 // RuneAt implement Buffer{} interface.
-func (rb *RopeBuffer) RuneAt(bCur int64) (ch rune, size int64, err error) {
+func (rb *RopeBuffer) RuneAt(bCur int64) (ch rune, size int, err error) {
 	if rb == nil {
 		return ch, size, ErrorBufferNil
 	} else if bCur < 0 || bCur >= rb.Len {
@@ -86,9 +86,9 @@ func (rb *RopeBuffer) RuneAt(bCur int64) (ch rune, size int64, err error) {
 	if rb.isLeaf() {
 		ch, size := utf8.DecodeRune(rb.Text[bCur:])
 		if ch == utf8.RuneError {
-			return ch, int64(size), ErrorInvalidEncoding
+			return ch, size, ErrorInvalidEncoding
 		}
-		return ch, int64(size), nil
+		return ch, size, nil
 
 	} else if bCur >= rb.Weight {
 		return rb.Right.RuneAt(bCur - rb.Weight)
@@ -112,10 +112,12 @@ func (rb *RopeBuffer) Runes() ([]rune, error) {
 func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	if rb == nil {
 		return nil, 0, ErrorBufferNil
-	} else if bCur < 0 || bCur > rb.Len {
-		return nil, 0, ErrorIndexOutofbound
 	} else if rn == 0 {
 		return []rune{}, 0, nil
+	} else if bCur < 0 || bCur >= rb.Len {
+		return nil, 0, ErrorIndexOutofbound
+	} else if rb.Len == 0 {
+		return nil, 0, ErrorIndexOutofbound
 	}
 
 	acc := make([]rune, rn)

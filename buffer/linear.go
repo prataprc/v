@@ -67,7 +67,11 @@ func (lb *LinearBuffer) Runes() ([]rune, error) {
 func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	if lb == nil {
 		return nil, 0, nil
-	} else if l := int64(len(lb.Text)); bCur < 0 || bCur > l {
+	} else if rn == 0 {
+		return []rune{}, 0, nil
+	} else if l := int64(len(lb.Text)); bCur < 0 || bCur >= l {
+		return nil, 0, ErrorIndexOutofbound
+	} else if l == 0 {
 		return nil, 0, ErrorIndexOutofbound
 	}
 	runes, size := make([]rune, rn), int64(0)
@@ -78,6 +82,9 @@ func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 		}
 		runes = append(runes, ch)
 		size += int64(sz)
+		if bCur+size >= int64(len(lb.Text)) {
+			break
+		}
 	}
 	return runes, size, nil
 }
