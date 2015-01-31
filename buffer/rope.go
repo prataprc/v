@@ -47,9 +47,9 @@ func (rb *RopeBuffer) String() string {
 //----------------------
 
 // Length implement Buffer{} interface.
-func (rb *RopeBuffer) Length() (l int64, err error) {
+func (rb *RopeBuffer) Length() (n int64, err error) {
 	if rb == nil {
-		return l, ErrorBufferNil
+		return n, ErrorBufferNil
 	}
 	return rb.Len, nil
 }
@@ -189,16 +189,18 @@ func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
 func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 	if rb == nil {
 		return rb, ErrorBufferNil
-
-	} else if bCur < 0 || bCur > int64(rb.Len-1) {
+	} else if rn == 0 {
+		return rb, nil
+	} else if bCur < 0 || bCur > rb.Len-1 {
 		return rb, ErrorIndexOutofbound
-
 	}
 
 	runes, size, err := rb.RuneSlice(bCur, rn)
 	if err != nil {
 		return rb, err
-	} else if int64(len(runes)) < rn {
+	} else if int64(len(runes)) != rn {
+		return rb, ErrorIndexOutofbound
+	} else if end := bCur + size; end < 0 || end > rb.Len {
 		return rb, ErrorIndexOutofbound
 	}
 
@@ -218,7 +220,7 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 	textb := []byte(string(text)) // TODO: this could be inefficient
 	if text == nil {
 		return rb, nil
-	} else if rb == nil {
+	} else if rb == nil || rb.Len == 0 {
 		return NewRopebuffer(textb, rb.Cap)
 	} else if bCur < 0 || bCur > rb.Len {
 		return rb, ErrorIndexOutofbound
@@ -234,6 +236,7 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 			return rb, err
 		}
 		rb.Right = right
+		rb.Len = rb.Left.Len + rb.Right.Len
 		return rb, nil
 	}
 	left, err := rb.Left.InsertIn(bCur, text)
@@ -241,6 +244,7 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 		return rb, err
 	}
 	rb.Left = left
+	rb.Weight, rb.Len = rb.Left.Len, rb.Left.Len+rb.Right.Len
 	return rb, nil
 }
 
@@ -248,11 +252,16 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (*RopeBuffer, error) {
 	if rb == nil {
 		return rb, ErrorBufferNil
-	} else if l := rb.Len; bCur < 0 || bCur > (l-1) {
+	} else if rn == 0 {
+		return rb, nil
+	} else if bCur < 0 || bCur > (rb.Len-1) {
 		return rb, ErrorIndexOutofbound
 	}
 	_, size, err := rb.RuneSlice(bCur, rn)
 	if err != nil {
+		return rb, err
+	} else if end := bCur + size; end < 0 || end > rb.Len {
+		return rb, ErrorIndexOutofbound
 	}
 	return rb.deleteIn(bCur, size)
 }
@@ -432,26 +441,42 @@ func (rb *RopeBuffer) runes(
 func (rb *RopeBuffer) deleteIn(bCur, bn int64) (*RopeBuffer, error) {
 	if rb.isLeaf() {
 		rb.Text = ioDelete(rb.Text, bCur, bn)
+		rb.Weight, rb.Len = int64(len(rb.Text)), int64(len(rb.Text))
 		return rb, nil
-	}
-
-	if bCur+bn < rb.Weight { // delete affects only the left path.
-		return rb.Left.deleteIn(bCur, bn)
 	}
 
 	var err error
 	var left, right *RopeBuffer
+
+	if bCur >= rb.Weight { // go right
+		right, err = rb.Right.deleteIn(bCur-rb.Weight, bn)
+		if err != nil {
+			return rb, err
+		}
+		rb.Right, rb.Len = right, rb.Len-bn
+		return rb, nil
+
+	} else if bCur+bn < rb.Weight { // delete affects only the left path.
+		left, err = rb.Left.deleteIn(bCur, bn)
+		if err != nil {
+			return rb, err
+		}
+		rb.Left, rb.Len, rb.Weight = left, rb.Len-bn, rb.Weight-bn
+		return rb, nil
+	}
+
+	leftbn, rightbn := rb.Weight-bCur, bCur+bn-rb.Weight
 	if rb.Left != nil {
-		if left, err = rb.Left.deleteIn(bCur, rb.Weight-bCur); err != nil {
+		if left, err = rb.Left.deleteIn(bCur, leftbn); err != nil {
 			return rb, err
 		}
 	}
 	if rb.Right != nil {
-		n := bCur + bn - rb.Weight
-		if right, err = rb.Right.deleteIn(0, n); err != nil {
+		if right, err = rb.Right.deleteIn(0, rightbn); err != nil {
 			return rb, err
 		}
 	}
+	rb.Len, rb.Weight = rb.Len-bn, rb.Weight-leftbn
 	rb.Left, rb.Right = left, right
 	return rb, nil
 }
@@ -586,12 +611,12 @@ func (s rbStats) incVariance(avg, varc float64, n, an int64) float64 {
 }
 
 func ioInsert(dest, text []byte, bCur int64) []byte {
-	dln, tln := int64(len(dest)), int64(len(text))
-	leftSl := make([]byte, dln+bCur)
+	dln := int64(len(dest))
+	leftSl := make([]byte, dln-bCur)
 	copy(leftSl, dest[bCur:])
-	copy(dest[bCur:bCur+tln], text)
-	dest = append(dest[:bCur+tln], leftSl...)
-	return dest[:dln+tln]
+	dest = append(dest[:bCur], text...)
+	dest = append(dest, leftSl...)
+	return dest
 }
 
 func ioDelete(dest []byte, bCur int64, n int64) []byte {

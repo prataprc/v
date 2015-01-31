@@ -79,7 +79,7 @@ func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	} else if l == 0 {
 		return nil, 0, ErrorIndexOutofbound
 	}
-	runes, size := make([]rune, rn), int64(0)
+	runes, size := make([]rune, 0, rn), int64(0)
 	for i := int64(0); i < rn; i++ {
 		ch, sz := utf8.DecodeRune(lb.Text[bCur+size:])
 		if ch == utf8.RuneError {
@@ -139,7 +139,7 @@ func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
 
 	left, right, err := lb.Split(bCur)
 	if err != nil {
-		return nil, err
+		return lb, err
 	}
 	if left == nil {
 		left = NewLinearBuffer([]byte(""))
@@ -157,17 +157,19 @@ func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
 // Delete implement Buffer{} interface.
 func (lb *LinearBuffer) Delete(bCur, rn int64) (*LinearBuffer, error) {
 	if lb == nil {
-		return nil, ErrorBufferNil
+		return lb, ErrorBufferNil
 	} else if rn == 0 {
 		return lb, nil
 	} else if bCur < 0 || bCur > int64(len(lb.Text)-1) {
-		return nil, ErrorIndexOutofbound
+		return lb, ErrorIndexOutofbound
 	}
-	_, size, err := lb.RuneSlice(bCur, rn)
+	runes, size, err := lb.RuneSlice(bCur, rn)
 	if err != nil {
-		return nil, err
+		return lb, err
+	} else if int64(len(runes)) != rn {
+		return lb, ErrorIndexOutofbound
 	} else if end := bCur + size; end < 0 || end > int64(len(lb.Text)) {
-		return nil, ErrorIndexOutofbound
+		return lb, ErrorIndexOutofbound
 	}
 	newt := make([]byte, int64(len(lb.Text))-size)
 	copy(newt[:bCur], lb.Text[:bCur])
@@ -177,11 +179,9 @@ func (lb *LinearBuffer) Delete(bCur, rn int64) (*LinearBuffer, error) {
 }
 
 // InsertIn implement Buffer{} interface.
-func (lb *LinearBuffer) InsertIn(
-	bCur int64, text []rune) (*LinearBuffer, error) {
-
+func (lb *LinearBuffer) InsertIn(bCur int64, text []rune) (*LinearBuffer, error) {
 	textb := []byte(string(text)) // TODO: this could be inefficient
-	x, y := int64(len(lb.Text)), int64(len(textb))
+	x := int64(len(lb.Text))
 	if text == nil {
 		return lb, nil
 	} else if lb == nil || x == 0 {
@@ -192,8 +192,8 @@ func (lb *LinearBuffer) InsertIn(
 
 	leftSl := make([]byte, x-bCur)
 	copy(leftSl, lb.Text[bCur:])
-	copy(lb.Text[bCur:bCur+y], textb)
-	lb.Text = append(lb.Text[bCur+y:], leftSl...)
+	lb.Text = append(lb.Text[:bCur], textb...)
+	lb.Text = append(lb.Text, leftSl...)
 	return lb, nil
 }
 

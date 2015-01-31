@@ -12,7 +12,7 @@ var sampleData []byte                         // contains 2.5MB data.
 
 func init() {
 	var err error
-	sampleData, err = ioutil.ReadFile("../testdata/sample.txt")
+	sampleData, err = ioutil.ReadFile("../tools/monstrun/sample.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -152,7 +152,9 @@ func TestRopeDeleteBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 	// before begin
-	if _, err := rb.Delete(-1, 0); err != ErrorIndexOutofbound {
+	if _, err := rb.Delete(-1, 0); err != nil {
+		t.Fatalf("unexpected err")
+	} else if _, err := rb.Delete(-1, 1); err != ErrorIndexOutofbound {
 		t.Fatalf("expecting err ErrorIndexOutofbound")
 	} else if err = validateRead(rb, []rune("hello world")); err != nil {
 		t.Fatal(err)
