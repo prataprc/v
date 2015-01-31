@@ -5,6 +5,7 @@ import "flag"
 import "encoding/json"
 import "fmt"
 import "log"
+import "sort"
 import "os"
 import "time"
 import "sync"
@@ -123,7 +124,9 @@ func main() {
 	for _, val := range stats {
 		total += val
 	}
-	fmt.Printf("total: %v\n%v\n", total, stats)
+	fmt.Printf("total: %v\n", total)
+	printStats(stats)
+
 	fmt.Printf("verified: %v persistant values\n", len(persistValues))
 }
 
@@ -148,6 +151,7 @@ func testCommands(s string, ch chan bool) {
 		statkey := cmd.([]interface{})[0].(string)
 		lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
 		if err != nil {
+			fmt.Println(cmd, options.seed)
 			fmt.Println(err)
 			return
 		}
@@ -168,8 +172,14 @@ func testCommand(
 	case "insert":
 		lb, rb, err = testInsert(
 			int64(cmd[1].(float64)), []rune(cmd[2].(string)), lb, rb)
+	case "insertin":
+		lb, rb, err = testInsertIn(
+			int64(cmd[1].(float64)), []rune(cmd[2].(string)), lb, rb)
 	case "delete":
 		lb, rb, err = testDelete(
+			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
+	case "deletein":
+		lb, rb, err = testDeleteIn(
 			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
 	case "index":
 		lb, rb, err = testRuneAt(int64(cmd[1].(float64)), lb, rb)
@@ -192,15 +202,45 @@ func testInsert(
 	lb1, err1 := lb.Insert(dot, text)
 	rb1, err2 := rb.Insert(dot, text)
 	if err1 != nil || err2 != nil {
-		incrStat(err1.Error())
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
 		if err1 != err2 {
-			return nil, nil, fmt.Errorf("mismatch in err %s %s", err1, err2)
+			return nil, nil, fmt.Errorf("insert: mismatch err %s %s", err1, err2)
 		} else if err1 != nil {
 			return lb, rb, nil
 		}
 	}
 	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
-		return lb1, rb1, fmt.Errorf("mismatch in text %s : %s", x, y)
+		return lb1, rb1, fmt.Errorf("insert: mismatch in text %s : %s", x, y)
+	}
+	return lb1, rb1, nil
+}
+
+func testInsertIn(
+	dot int64, text []rune,
+	lb *buffer.LinearBuffer,
+	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
+
+	dsmu.Lock()
+	defer dsmu.Unlock()
+	lb1, err1 := lb.InsertIn(dot, text)
+	rb1, err2 := rb.InsertIn(dot, text)
+	if err1 != nil || err2 != nil {
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
+		if err1 != err2 {
+			x, _ := lb.Length()
+			y, _ := rb.Length()
+			err := fmt.Errorf("insin: mismatch err %v %v %v %v", err1, err2, x, y)
+			return nil, nil, err
+		} else if err1 != nil {
+			return lb, rb, nil
+		}
+	}
+	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
+		return lb1, rb1, fmt.Errorf("insin: mismatch in text %s : %s", x, y)
 	}
 	return lb1, rb1, nil
 }
@@ -213,9 +253,42 @@ func testDelete(
 	lb1, err1 := lb.Delete(dot, size)
 	rb1, err2 := rb.Delete(dot, size)
 	if err1 != nil || err2 != nil {
-		incrStat(err1.Error())
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
 		if err1 != err2 {
-			return nil, nil, fmt.Errorf("mismatch in err %s %s", err1, err2)
+			x, _ := lb.Length()
+			y, _ := rb.Length()
+			err := fmt.Errorf("del: mismatch err %v %v %v %v", err1, err2, x, y)
+			return nil, nil, err
+		} else if err1 != nil {
+			return lb, rb, nil
+		}
+	}
+	if x, y := string(lb1.Value()), string(rb1.Value()); x != y {
+		return lb1, rb1, fmt.Errorf("mismatch in input %s : %s", x, y)
+	}
+	return lb1, rb1, nil
+}
+
+func testDeleteIn(
+	dot, size int64,
+	lb *buffer.LinearBuffer,
+	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
+
+	dsmu.Lock()
+	defer dsmu.Unlock()
+	lb1, err1 := lb.DeleteIn(dot, size)
+	rb1, err2 := rb.DeleteIn(dot, size)
+	if err1 != nil || err2 != nil {
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
+		if err1 != err2 {
+			x, _ := lb.Length()
+			y, _ := rb.Length()
+			err := fmt.Errorf("delin: mismatch err %v %v %v %v", err1, err2, x, y)
+			return nil, nil, err
 		} else if err1 != nil {
 			return lb, rb, nil
 		}
@@ -234,9 +307,11 @@ func testRuneAt(
 	ch1, size1, err1 := lb.RuneAt(dot)
 	ch2, size2, err2 := rb.RuneAt(dot)
 	if err1 != nil || err2 != nil {
-		incrStat(err1.Error())
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
 		if err1 != err2 {
-			return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+			return nil, nil, fmt.Errorf("runeat: mismatch err %v, %v", err1, err2)
 		} else if size1 != size2 {
 			return nil, nil, fmt.Errorf("mismatch in size %v, %v", size1, size2)
 		} else if ch1 != ch2 {
@@ -253,9 +328,12 @@ func testLength(
 	l1, err1 := lb.Length()
 	l2, err2 := rb.Length()
 	if err1 != nil || err2 != nil {
-		incrStat(err1.Error())
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
 		if err1 != err2 {
-			return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+			err := fmt.Errorf("len: mismatch err %v %v %v %v", err1, err2, l1, l2)
+			return nil, nil, err
 		} else if l1 != l2 {
 			return nil, nil, fmt.Errorf("mismatch in len %v, %v", l1, l2)
 		}
@@ -282,9 +360,11 @@ func testSubstr(
 	rs1, size1, err1 := lb.RuneSlice(dot, size)
 	rs2, size2, err2 := rb.RuneSlice(dot, size)
 	if err1 != nil || err2 != nil {
-		incrStat(err1.Error())
+		if err2 != nil {
+			incrStat(err2.Error())
+		}
 		if err1 != err2 {
-			return nil, nil, fmt.Errorf("mismatch in err %v, %v", err1, err2)
+			return nil, nil, fmt.Errorf("subs: mismatch err %v, %v", err1, err2)
 		} else if size1 != size2 {
 			return nil, nil, fmt.Errorf("mismatch in size %v, %v", size1, size2)
 		} else if !reflect.DeepEqual(rs1, rs2) {
@@ -299,7 +379,9 @@ func testSubstr(
 var statsmu sync.Mutex
 var stats = map[string]int64{
 	"insert":                            int64(0),
+	"insertin":                          int64(0),
 	"delete":                            int64(0),
+	"deletein":                          int64(0),
 	"index":                             int64(0),
 	"length":                            int64(0),
 	"value":                             int64(0),
@@ -312,4 +394,16 @@ func incrStat(key string) {
 	statsmu.Lock()
 	defer statsmu.Unlock()
 	stats[key] = stats[key] + 1
+}
+
+func printStats(stats map[string]int64) {
+	keys := make([]string, 0, len(stats))
+	for k := range stats {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fmt.Println("Stats:")
+	for _, k := range keys {
+		fmt.Printf("    %v: %v\n", k, stats[k])
+	}
 }

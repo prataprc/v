@@ -6,14 +6,18 @@ commands : (weigh 0.9 0.0005) "[" command "], " commands
          | (weigh 0.01) "[" command "]".
 
 command : (weigh 0.1 0.0005) insert
+        | (weigh 0.2 0.0005) insertin
         | (weigh 0.3 0.0005) index
         | (weigh 0.4 0.0005) length
         | (weigh 0.5 0.0005) value
         | (weigh 0.6 0.0005) substr
-        | (weigh 0.7 0.0005) delete.
+        | (weigh 0.7 0.0005) delete
+        | (weigh 0.7 0.0005) deletein.
 
 insert   : "\"insert\", " dot ", \"" text "\"".
+insertin : "\"insertin\", " dot ", \"" text "\"".
 delete   : "\"delete\", " dot ", " size.
+deletein : "\"deletein\", " dot ", " size.
 index    : "\"index\", " dot.
 length   : "\"length\"".
 value    : "\"value\"".
