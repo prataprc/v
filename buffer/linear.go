@@ -133,6 +133,8 @@ func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
 		return lb, nil
 	} else if lb == nil {
 		return NewLinearBuffer(textb), nil
+	} else if bCur < 0 || bCur > int64(len(lb.Text)) {
+		return lb, ErrorIndexOutofbound
 	}
 
 	left, right, err := lb.Split(bCur)
@@ -152,19 +154,16 @@ func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
 	return NewLinearBuffer(newlb), nil
 }
 
-// InsertIO implement Buffer{} interface.
-func (lb *LinearBuffer) InsertIO(bCur int64, text []rune) (*LinearBuffer, error) {
-	return lb.Insert(bCur, text)
-}
-
 // Delete implement Buffer{} interface.
-func (lb *LinearBuffer) Delete(bCur, Rn int64) (*LinearBuffer, error) {
+func (lb *LinearBuffer) Delete(bCur, rn int64) (*LinearBuffer, error) {
 	if lb == nil {
 		return nil, ErrorBufferNil
+	} else if rn == 0 {
+		return lb, nil
 	} else if bCur < 0 || bCur > int64(len(lb.Text)-1) {
 		return nil, ErrorIndexOutofbound
 	}
-	_, size, err := lb.RuneSlice(bCur, Rn)
+	_, size, err := lb.RuneSlice(bCur, rn)
 	if err != nil {
 		return nil, err
 	} else if end := bCur + size; end < 0 || end > int64(len(lb.Text)) {
@@ -177,6 +176,48 @@ func (lb *LinearBuffer) Delete(bCur, Rn int64) (*LinearBuffer, error) {
 	return newlb, nil
 }
 
+// InsertIn implement Buffer{} interface.
+func (lb *LinearBuffer) InsertIn(
+	bCur int64, text []rune) (*LinearBuffer, error) {
+
+	textb := []byte(string(text)) // TODO: this could be inefficient
+	x, y := int64(len(lb.Text)), int64(len(textb))
+	if text == nil {
+		return lb, nil
+	} else if lb == nil || x == 0 {
+		return NewLinearBuffer(textb), nil
+	} else if bCur < 0 || bCur > x {
+		return lb, ErrorIndexOutofbound
+	}
+
+	leftSl := make([]byte, x-bCur)
+	copy(leftSl, lb.Text[bCur:])
+	copy(lb.Text[bCur:bCur+y], textb)
+	lb.Text = append(lb.Text[bCur+y:], leftSl...)
+	return lb, nil
+}
+
+// DeleteIn implement Buffer{} interface.
+func (lb *LinearBuffer) DeleteIn(bCur, rn int64) (*LinearBuffer, error) {
+	x := int64(len(lb.Text))
+	if lb == nil {
+		return lb, ErrorBufferNil
+	} else if rn == 0 {
+		return lb, nil
+	} else if bCur < 0 || bCur > (x-1) {
+		return lb, ErrorIndexOutofbound
+	}
+	_, size, err := lb.RuneSlice(bCur, rn)
+	if err != nil {
+		return lb, err
+	} else if end := bCur + size; end < 0 || end > x {
+		return lb, ErrorIndexOutofbound
+	}
+	copy(lb.Text[bCur:], lb.Text[bCur+size:])
+	lb.Text = lb.Text[:x-size]
+	return lb, nil
+}
+
 // StreamFrom implement Buffer interface{}.
 func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
 	return iterator(func() (r rune, size int, err error) {
@@ -187,11 +228,6 @@ func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
 		bCur += int64(size)
 		return r, size, nil
 	})
-}
-
-// DeleteIO implement Buffer{} interface.
-func (lb *LinearBuffer) DeleteIO(bCur, n int64) (*LinearBuffer, error) {
-	return lb.Delete(bCur, n)
 }
 
 // Stats implement Buffer{} interface.

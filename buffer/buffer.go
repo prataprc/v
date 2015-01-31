@@ -1,6 +1,7 @@
 package buffer
 
 import "fmt"
+import "io"
 
 var _ = fmt.Sprintf("dummy")
 
@@ -37,10 +38,10 @@ type Buffer interface {
 	// Runes return full content in buffer as rune-array.
 	Runes() ([]byte, error)
 
-	// RuneSlice return a substring of length Rn runes after
+	// RuneSlice return a substring of length `rn` runes after
 	// bCur number of bytes from start. It also returns the
-	// no.of bytes consume to decode Rn runes.
-	RuneSlice(bCur, Rn int64) (runes []rune, size int64, err error)
+	// no.of bytes consume to decode `rn` runes.
+	RuneSlice(bCur, rn int64) (runes []rune, size int64, err error)
 
 	// Concat adds another buffer element adjacent to the
 	// current buffer.
@@ -56,13 +57,24 @@ type Buffer interface {
 	// new reference without creating side-effects.
 	Insert(bCur int64, text []rune) (buf Buffer, err error)
 
-	// Delete generates a new buffer by deleting Rn runes from
+	// Delete generates a new buffer by deleting `rn` runes from
 	// the original buffer after bCur. Returns a new reference
 	// without creating side-effects.
-	Delete(bCur int64, Rn int64) (buf Buffer, err error)
+	Delete(bCur int64, rn int64) (buf Buffer, err error)
+
+	// InsertIn addes, in place, one or more runes at bCur,
+	// semantically pushing the runes at the bCur to the right.
+	// Returns the same reference.
+	// NonPersistant API.
+	InsertIn(bCur int64, text []rune) (buf Buffer, err error)
+
+	// DeleteIn deletes, in place, `rn` runes from the original
+	// buffer after bCur. Returns the same reference.
+	// NonPersistant API.
+	DeleteIn(bCur int64, rn int64) (buf Buffer, err error)
 
 	// StreamFrom returns a RuneReader starting from `bCur`.
-	//StreamFrom(bCur int64) io.RuneReader
+	StreamFrom(bCur int64) io.RuneReader
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)

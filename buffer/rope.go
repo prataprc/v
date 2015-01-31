@@ -213,6 +213,50 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 	return left.Concat(right)
 }
 
+// InsertIn implement Buffer{} interface.
+func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
+	textb := []byte(string(text)) // TODO: this could be inefficient
+	if text == nil {
+		return rb, nil
+	} else if rb == nil {
+		return NewRopebuffer(textb, rb.Cap)
+	} else if bCur < 0 || bCur > rb.Len {
+		return rb, ErrorIndexOutofbound
+	}
+
+	if rb.isLeaf() { // make inplace modification
+		text := ioInsert(rb.Text, textb, bCur)
+		return NewRopebuffer(text, rb.Cap)
+	}
+	if bCur >= rb.Weight {
+		right, err := rb.Right.InsertIn(bCur-rb.Weight, text)
+		if err != nil {
+			return rb, err
+		}
+		rb.Right = right
+		return rb, nil
+	}
+	left, err := rb.Left.InsertIn(bCur, text)
+	if err != nil {
+		return rb, err
+	}
+	rb.Left = left
+	return rb, nil
+}
+
+// DeleteIn implement Buffer{} interface.
+func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (*RopeBuffer, error) {
+	if rb == nil {
+		return rb, ErrorBufferNil
+	} else if l := rb.Len; bCur < 0 || bCur > (l-1) {
+		return rb, ErrorIndexOutofbound
+	}
+	_, size, err := rb.RuneSlice(bCur, rn)
+	if err != nil {
+	}
+	return rb.deleteIn(bCur, size)
+}
+
 // StreamFrom implement Buffer interface{}.
 func (rb *RopeBuffer) StreamFrom(bCur int64) io.RuneReader {
 	return rb.runeIterator(bCur)
@@ -257,15 +301,6 @@ func (rb *RopeBuffer) isLeaf() bool {
 	return rb.Left == nil
 }
 
-func (rb *RopeBuffer) io(src, text []rune, dot int64) []rune {
-	l := int64(len(text))
-	newtext := make([]rune, len(text)+len(src))
-	copy(newtext[:dot], src[:dot])
-	copy(newtext[dot:l], text)
-	copy(newtext[dot+l:], src[dot:])
-	return newtext
-}
-
 func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
 	var left, right, x, y *RopeBuffer
 
@@ -289,9 +324,10 @@ func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
 	return rb, nil
 }
 
-func (rb *RopeBuffer) split(bCur int64, right *RopeBuffer) (*RopeBuffer, *RopeBuffer, error) {
-	var err error
+func (rb *RopeBuffer) split(
+	bCur int64, right *RopeBuffer) (*RopeBuffer, *RopeBuffer, error) {
 
+	var err error
 	if bCur == rb.Weight { // exact
 		if rb.isLeaf() {
 			return rb, rb.Right, nil
@@ -362,7 +398,9 @@ func (rb *RopeBuffer) value(bCur int64, n int64, acc []byte) {
 	}
 }
 
-func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, error) {
+func (rb *RopeBuffer) runes(
+	bCur int64, rn int64, acc []rune) (int64, int64, error) {
+
 	if rb.isLeaf() {
 		count, size, err := bytes2RunesN(rb.Text[bCur:], rn, acc)
 		if err != nil {
@@ -389,6 +427,33 @@ func (rb *RopeBuffer) runes(bCur int64, rn int64, acc []rune) (int64, int64, err
 		return lcount + rcount, lsize + rsize, err
 	}
 	return lcount, lsize, err
+}
+
+func (rb *RopeBuffer) deleteIn(bCur, bn int64) (*RopeBuffer, error) {
+	if rb.isLeaf() {
+		rb.Text = ioDelete(rb.Text, bCur, bn)
+		return rb, nil
+	}
+
+	if bCur+bn < rb.Weight { // delete affects only the left path.
+		return rb.Left.deleteIn(bCur, bn)
+	}
+
+	var err error
+	var left, right *RopeBuffer
+	if rb.Left != nil {
+		if left, err = rb.Left.deleteIn(bCur, rb.Weight-bCur); err != nil {
+			return rb, err
+		}
+	}
+	if rb.Right != nil {
+		n := bCur + bn - rb.Weight
+		if right, err = rb.Right.deleteIn(0, n); err != nil {
+			return rb, err
+		}
+	}
+	rb.Left, rb.Right = left, right
+	return rb, nil
 }
 
 func (rb *RopeBuffer) stats(depth int64, s rbStats) {
@@ -518,4 +583,19 @@ func (s rbStats) incVariance(avg, varc float64, n, an int64) float64 {
 	varndiff := (float64(an) - avgn) * (float64(an) - avgn)
 	varcn := float64(n-2)*(varc*varc) + float64(n-1)*avgdiff + varndiff
 	return math.Sqrt(varcn)
+}
+
+func ioInsert(dest, text []byte, bCur int64) []byte {
+	dln, tln := int64(len(dest)), int64(len(text))
+	leftSl := make([]byte, dln+bCur)
+	copy(leftSl, dest[bCur:])
+	copy(dest[bCur:bCur+tln], text)
+	dest = append(dest[:bCur+tln], leftSl...)
+	return dest[:dln+tln]
+}
+
+func ioDelete(dest []byte, bCur int64, n int64) []byte {
+	l := int64(len(dest))
+	copy(dest[bCur:], dest[bCur+n:])
+	return dest[:l-n]
 }
