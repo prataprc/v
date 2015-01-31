@@ -250,7 +250,6 @@ func TestRopeStreamFrom(t *testing.T) {
 }
 
 func BenchmarkRopeSample8(b *testing.B) {
-	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		NewRopebuffer(sampleData, 8)
 	}
@@ -258,7 +257,6 @@ func BenchmarkRopeSample8(b *testing.B) {
 }
 
 func BenchmarkRopeSample256(b *testing.B) {
-	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		NewRopebuffer(sampleData, 256)
 	}
@@ -309,18 +307,99 @@ func BenchmarkRopeRuneSlice(b *testing.B) {
 	}
 }
 
-func BenchmarkRopeInsert(b *testing.B) {
+func BenchmarkRopeInsert1(b *testing.B) {
 	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
-	if err != nil {
-		b.Fatal(err)
-	}
-	runes, _, err := rb.RuneSlice(0, 10000)
 	if err != nil {
 		b.Fatal(err)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rb.Insert(1024*512, runes)
+		rb.Insert(104*512, []rune{'a'})
+	}
+}
+
+func BenchmarkRopeInsert100(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	runes, _, err := rb.RuneSlice(0, 100)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.Insert(104*512, runes)
+	}
+}
+
+func BenchmarkRopeInsertIn1(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.InsertIn(104*512, []rune{'a'})
+	}
+}
+
+func BenchmarkRopeInsertIn100(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	runes, _, err := rb.RuneSlice(0, 100)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.InsertIn(104*512, runes)
+	}
+}
+
+func BenchmarkRopeDelete1(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.Delete(104*512, 1)
+	}
+}
+
+func BenchmarkRopeDelete1000(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.Delete(104*512, 1000)
+	}
+}
+
+func BenchmarkRopeDeleteIn1(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.DeleteIn(104*512, 1)
+	}
+}
+
+func BenchmarkRopeDeleteIn1000(b *testing.B) {
+	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.DeleteIn(104*512, 1000)
 	}
 }
 
@@ -333,13 +412,34 @@ func BenchmarkBytes2Str(b *testing.B) {
 	b.SetBytes(int64(len(text)))
 }
 
-func BenchmarkStr2Runes(b *testing.B) {
-	var text []rune
+func BenchmarkStr2Byte(b *testing.B) {
+	var bs []byte
+	text := string(sampleData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		text = []rune(string(sampleData))
+		bs = []byte(text)
 	}
-	b.SetBytes(int64(len(text)))
+	b.SetBytes(int64(len(bs)))
+}
+
+func BenchmarkStr2Runes(b *testing.B) {
+	var runes []rune
+	str := string(sampleData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		runes = []rune(str)
+	}
+	b.SetBytes(int64(len(runes)))
+}
+
+func BenchmarkRunes2Str(b *testing.B) {
+	var str string
+	runes := []rune(string(sampleData))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		str = string(runes)
+	}
+	b.SetBytes(int64(len(str)))
 }
 
 func BenchmarkStreamFrom(b *testing.B) {
@@ -347,11 +447,13 @@ func BenchmarkStreamFrom(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	count := 0
 	for i := 0; i < b.N; i++ {
-		reader := rb.StreamFrom(int64(i))
+		reader := rb.StreamFrom(0)
 		_, _, err := reader.ReadRune()
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
+			count++
 		}
 	}
 	b.SetBytes(int64(len(sampleData)))

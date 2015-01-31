@@ -611,12 +611,12 @@ func (s rbStats) incVariance(avg, varc float64, n, an int64) float64 {
 }
 
 func ioInsert(dest, text []byte, bCur int64) []byte {
-	dln := int64(len(dest))
-	leftSl := make([]byte, dln-bCur)
-	copy(leftSl, dest[bCur:])
-	dest = append(dest[:bCur], text...)
-	dest = append(dest, leftSl...)
-	return dest
+	x, y := int64(len(dest)), int64(len(text))
+	newt := make([]byte, x+y)
+	copy(newt[:bCur], dest[:bCur])
+	copy(newt[bCur:bCur+y], text)
+	copy(newt[bCur+y:], dest[bCur:])
+	return newt
 }
 
 func ioDelete(dest []byte, bCur int64, n int64) []byte {
