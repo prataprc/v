@@ -230,6 +230,18 @@ func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
 	})
 }
 
+// StreamTill implement Buffer interface{}.
+func (lb *LinearBuffer) StreamTill(bCur, end int64) io.RuneReader {
+	return iterator(func() (r rune, size int, err error) {
+		if bCur > int64(len(lb.Text)) || bCur >= end {
+			return r, size, io.EOF
+		}
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
+		bCur += int64(size)
+		return r, size, nil
+	})
+}
+
 // Stats implement Buffer{} interface.
 func (lb *LinearBuffer) Stats() (stats Statistics, err error) {
 	return

@@ -17,6 +17,7 @@ type EditBuffer struct {
 	children []*EditBuffer
 }
 
+// NewEditBuffer create a new read-write buffer.
 func NewEditBuffer(dot int64, buffer Buffer, parent *EditBuffer) *EditBuffer {
 	ebuf := &EditBuffer{
 		dot:      dot,
@@ -28,21 +29,25 @@ func NewEditBuffer(dot int64, buffer Buffer, parent *EditBuffer) *EditBuffer {
 	return ebuf
 }
 
+// NewReadOnlyBuffer create a new read-only buffer.
 func NewReadOnlyBuffer(dot int64, buffer Buffer) *EditBuffer {
 	ebuf := NewEditBuffer(dot, buffer, nil)
 	ebuf.ronly = true
 	return ebuf
 }
 
+// GetBuffer return buffer and cursor position.
 func (ebuf *EditBuffer) GetBuffer() (dot int64, buffer Buffer) {
 	dot, buffer = ebuf.dot, ebuf.buffer
 	return
 }
 
+// IsReadonly check whether edit-buffer is read-only.
 func (ebuf *EditBuffer) IsReadonly() bool {
 	return ebuf.ronly
 }
 
+// ForceWrite mark edit-buffer as read-write buffer.
 func (ebuf *EditBuffer) ForceWrite() *EditBuffer {
 	ebuf.ronly = false
 	return ebuf
@@ -52,6 +57,7 @@ func (ebuf *EditBuffer) ForceWrite() *EditBuffer {
 // APIs to manage change-tree
 //---------------------------
 
+// UpdateChange will overwrite the current buffer reference.
 func (ebuf *EditBuffer) UpdateChange(buffer Buffer) (*EditBuffer, error) {
 	if ebuf.ronly {
 		return ebuf, ErrorReadonlyBuffer
@@ -60,6 +66,8 @@ func (ebuf *EditBuffer) UpdateChange(buffer Buffer) (*EditBuffer, error) {
 	return ebuf, nil
 }
 
+// AppendChange will create a new edit buffer with {dot,buffer}
+// and chain it with the current edit buffer as its last child.
 func (ebuf *EditBuffer) AppendChange(
 	dot int64, buffer Buffer) (*EditBuffer, error) {
 
@@ -71,19 +79,22 @@ func (ebuf *EditBuffer) AppendChange(
 	return child, nil
 }
 
-func (ebuf *EditBuffer) UndoChange() (*EditBuffer, error) {
-	if ebuf.parent == nil {
-		return ebuf, ErrorOldestChange
+// Undo n changes.
+func (ebuf *EditBuffer) UndoChange(n int64) *EditBuffer {
+	for ebuf.parent != nil && n > 0 {
+		ebuf = ebuf.parent
+		n--
 	}
-	return ebuf.parent, nil
+	return ebuf
 }
 
-func (ebuf *EditBuffer) RedoChange() (*EditBuffer, error) {
-	l := len(ebuf.children)
-	if l < 1 {
-		return ebuf, ErrorLatestChange
+// Redo n changes.
+func (ebuf *EditBuffer) RedoChange(n int64) *EditBuffer {
+	for len(ebuf.children) > 0 && n > 0 {
+		ebuf = ebuf.children[len(ebuf.children)-1]
+		n--
 	}
-	return ebuf.children[l-1], nil
+	return ebuf
 }
 
 //----------------

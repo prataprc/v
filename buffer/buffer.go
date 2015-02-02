@@ -76,6 +76,10 @@ type Buffer interface {
 	// StreamFrom returns a RuneReader starting from `bCur`.
 	StreamFrom(bCur int64) io.RuneReader
 
+	// StreamTill returns a RuneReader starting from `bCur` till
+	// `end`, not including end.
+	StreamTill(bCur, end int64) io.RuneReader
+
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)
 }

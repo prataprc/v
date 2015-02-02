@@ -268,7 +268,12 @@ func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (*RopeBuffer, error) {
 
 // StreamFrom implement Buffer interface{}.
 func (rb *RopeBuffer) StreamFrom(bCur int64) io.RuneReader {
-	return rb.runeIterator(bCur)
+	return rb.runeIterator(bCur, -1)
+}
+
+// StreamTill implement Buffer interface{}.
+func (rb *RopeBuffer) StreamTill(bCur, end int64) io.RuneReader {
+	return rb.runeIterator(bCur, end)
 }
 
 // Stats implement Buffer{} interface.
@@ -495,7 +500,7 @@ func (rb *RopeBuffer) stats(depth int64, s rbStats) {
 }
 
 // iterate on runes in buffer starting from `bCur`.
-func (rb *RopeBuffer) runeIterator(bCur int64) iterator {
+func (rb *RopeBuffer) runeIterator(bCur, end int64) iterator {
 	ch := make(chan []interface{})
 
 	go func() {
@@ -513,17 +518,27 @@ func (rb *RopeBuffer) runeIterator(bCur int64) iterator {
 		}
 		return 0, nil
 	}
+	if bCur < 0 || rb.Len == 0 || (end > 0 && bCur >= end) {
+		return func() (r rune, size int, err error) {
+			return r, size, io.EOF
+		}
+	}
 
 	off, leaf := nextLeaf()
 	return func() (r rune, size int, err error) {
-		if leaf == nil || off < 0 {
+		if leaf == nil {
 			return r, size, io.EOF
 
 		} else if off < leaf.Len {
 			r, size = utf8.DecodeRune(leaf.Text[off:])
 			off += int64(size)
-			if off == leaf.Len {
+			bCur += int64(size)
+			if end > 0 && bCur >= end {
+				leaf = nil
+			} else if off == leaf.Len {
 				off, leaf = nextLeaf()
+			} else if off > leaf.Len {
+				panic("impossible situation")
 			}
 			return r, size, nil
 
