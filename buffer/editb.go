@@ -108,6 +108,10 @@ func (ebuf *EditBuffer) MoveTo(dot int64, mode int) *EditBuffer {
 	return ebuf
 }
 
+//--------------------
+// Buffer modification
+//--------------------
+
 // RuboutChar before the current-cursor position.
 func (ebuf *EditBuffer) RuboutChar(mode byte) (*EditBuffer, error) {
 	if ebuf.dot <= 0 {

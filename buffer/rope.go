@@ -391,23 +391,25 @@ func (rb *RopeBuffer) split(
 }
 
 func (rb *RopeBuffer) value(bCur int64, n int64, acc []byte) {
-	if bCur >= rb.Weight { // recurse to right
-		rb.Right.value(bCur-rb.Weight, n, acc)
+	if rb != nil {
+		if bCur >= rb.Weight { // recurse to right
+			rb.Right.value(bCur-rb.Weight, n, acc)
 
-	} else if rb.Weight >= bCur+n { // the left branch has enough values
-		if rb.isLeaf() {
-			copy(acc, rb.Text[bCur:bCur+n])
-		} else if rb.Left != nil {
-			rb.Left.value(bCur, n, acc)
-		}
+		} else if rb.Weight >= bCur+n { // the left branch has enough values
+			if rb.isLeaf() {
+				copy(acc, rb.Text[bCur:bCur+n])
+			} else if rb.Left != nil {
+				rb.Left.value(bCur, n, acc)
+			}
 
-	} else { // else split the work
-		leftN := rb.Weight - bCur
-		if rb.Left != nil {
-			rb.Left.value(bCur, leftN, acc[:leftN])
-		}
-		if rb.Right != nil {
-			rb.Right.value(0, n-leftN, acc[leftN:])
+		} else { // else split the work
+			leftN := rb.Weight - bCur
+			if rb.Left != nil {
+				rb.Left.value(bCur, leftN, acc[:leftN])
+			}
+			if rb.Right != nil {
+				rb.Right.value(0, n-leftN, acc[leftN:])
+			}
 		}
 	}
 }
