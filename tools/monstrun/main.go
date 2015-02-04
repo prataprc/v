@@ -2,13 +2,15 @@ package main
 
 import "io/ioutil"
 import "flag"
+import "sync"
+import "os/signal"
+import "syscall"
 import "encoding/json"
 import "fmt"
 import "log"
 import "sort"
 import "os"
 import "time"
-import "sync"
 import "reflect"
 import "runtime/debug"
 
@@ -22,6 +24,7 @@ var options struct {
 	bagdir   string
 	seed     uint64
 	count    int64
+	par      int64
 }
 
 func argParse() {
@@ -35,6 +38,8 @@ func argParse() {
 		"seed to monster")
 	flag.Int64Var(&options.count, "count", 1,
 		"loop count to run monster")
+	flag.Int64Var(&options.par, "par", 1,
+		"number of routines to execute a batch of commands")
 
 	flag.Parse()
 
@@ -49,24 +54,39 @@ func usage() {
 	flag.PrintDefaults()
 }
 
+// global data structure on which commands are exercised
+var inrw sync.RWMutex
 var dsmu sync.Mutex
 var ds struct {
 	lb *buffer.LinearBuffer
 	rb *buffer.RopeBuffer
 }
 
-func getds() (*buffer.LinearBuffer, *buffer.RopeBuffer) {
+func getds(op, w bool) (*buffer.LinearBuffer, *buffer.RopeBuffer) {
+	if op && w {
+		inrw.Lock()
+	} else if op {
+		inrw.RLock()
+	}
 	dsmu.Lock()
 	defer dsmu.Unlock()
 	lb, rb := ds.lb, ds.rb
 	return lb, rb
 }
 
-func setds(lb *buffer.LinearBuffer, rb *buffer.RopeBuffer) {
+func setds(lb *buffer.LinearBuffer, rb *buffer.RopeBuffer, op, w bool) {
 	dsmu.Lock()
 	defer dsmu.Unlock()
 	ds.lb, ds.rb = lb, rb
+	if op && w {
+		inrw.Unlock()
+	} else if op {
+		inrw.RUnlock()
+	}
 }
+
+var persistValues = make(map[*buffer.RopeBuffer]string)
+var wg = new(sync.WaitGroup)
 
 func main() {
 	argParse()
@@ -80,94 +100,105 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	setds(lb, rb)
-	ch := make(chan bool, options.count)
-	n := int64(0)
-	for n < options.count {
-		// compile
-		root, _ := monster.Y(parsec.NewScanner(text))
-		scope := root.(monstc.Scope)
-		nterms := scope["_nonterminals"].(monstc.NTForms)
-		scope = monster.BuildContext(scope, options.seed, options.bagdir)
-		scope["_prodfile"] = options.prodfile
+	ds.lb, ds.rb = lb, rb
 
-		// evaluate
-		scope = scope.ApplyGlobalForms()
-		val := monster.EvalForms("root", scope, nterms["s"])
-		go testCommands(val.(string), ch)
-		if err != nil {
-			log.Fatalf("seed: %v error: %v\n", options.seed, err)
-		}
-		n++
+	// spawn `par` number of routines
+	routines := make([]chan []string, 0, options.par)
+	for i := int64(0); i < options.par; i++ {
+		ch := make(chan []string, 1000)
+		log.Printf("spawning routine %d\n", i)
+		go doCommands(int(i), ch)
+		routines = append(routines, ch)
 	}
-	// wait until all tests are executed
-	n = int64(0)
-	persistValues := make(map[*buffer.RopeBuffer]string)
-	for n < options.count {
-		switch {
-		case <-ch:
-			n++
-		default:
-		}
-		_, rb = getds()
-		persistValues[rb] = string(rb.Value())
-	}
-	// verify persistant values.
-	for rb, refstr := range persistValues {
-		if refstr != string(rb.Value()) {
-			fmt.Printf("seed: %v\n", options.seed)
-			fmt.Println("Mismatch ...\n%s\n%s\n\n", refstr, string(rb.Value()))
-		}
-	}
-	// format and print statistics
-	total := int64(0)
-	for _, val := range stats {
-		total += val
-	}
-	fmt.Printf("total: %v\n", total)
-	printStats(stats)
 
-	fmt.Printf("verified: %v persistant values\n", len(persistValues))
+	// gather persisted data-structure
+	killGatherer := make(chan bool)
+	go func() {
+	loop:
+		for {
+			switch {
+			case <-killGatherer:
+				break loop
+			default:
+			}
+			//time.Sleep(10 * time.Millisecond)
+			lb, rb = getds(true, false)
+			persistValues[rb] = string(rb.Value())
+			setds(lb, rb, true, false)
+		}
+	}()
+
+	// generate a set of many commands in batch.
+	for n := int64(0); n < options.count; n += 10 {
+		commandsList := generateCommands(text, 10)
+		for _, routine := range routines {
+			routine <- commandsList
+			wg.Add(1)
+		}
+	}
+
+	wg.Wait()
+	close(killGatherer)
+	time.Sleep(100 * time.Millisecond)
+
+	printStats()
 }
 
-func testCommands(s string, ch chan bool) {
-	var cmds []interface{}
-
+func doCommands(num int, ch chan []string) (i int, j int) {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println(r, "seed:", options.seed)
-			fmt.Println(string(debug.Stack()))
+			printStats()
+			log.Println(r)
+			log.Println(string(debug.Stack()))
 			os.Exit(1)
 		}
 	}()
 
-	err := json.Unmarshal([]byte(s), &cmds)
-	if err != nil {
-		incrStat(err.Error())
-		return
-	}
-	for _, cmd := range cmds {
-		lb, rb := getds()
-		statkey := cmd.([]interface{})[0].(string)
-		lb, rb, err = testCommand(cmd.([]interface{}), lb, rb)
-		if err != nil {
-			fmt.Println(cmd, options.seed)
-			fmt.Println(err)
-			return
+	var s string
+	var cmd interface{}
+	for {
+		commandsList := <-ch
+		for i, s = range commandsList {
+			var cmds []interface{}
+			err := json.Unmarshal([]byte(s), &cmds)
+			if err != nil {
+				incrStat(err.Error())
+				continue
+			}
+			var lb *buffer.LinearBuffer
+			var rb *buffer.RopeBuffer
+			for j, cmd = range cmds {
+				statkey := cmd.([]interface{})[0].(string)
+				if statkey == "insertin" || statkey == "deletein" {
+					lb, rb = getds(true, true)
+				} else {
+					lb, rb = getds(true, false)
+				}
+
+				//log.Printf("start-routine%d {%d,%d} %v %p %p\n", num, i, j, cmd, lb, rb)
+				lb, rb = testCommand(cmd.([]interface{}), lb, rb)
+				//log.Printf("end-routine%d {%d,%d} %v %p %p\n", num, i, j, cmd, lb, rb)
+
+				if statkey == "insertin" || statkey == "deletein" {
+					setds(lb, rb, true, true)
+				} else {
+					setds(lb, rb, true, false)
+				}
+				incrStat(statkey)
+			}
 		}
-		incrStat(statkey)
-		setds(lb, rb)
+		wg.Done()
 	}
-	ch <- true
 	return
 }
 
 func testCommand(
 	cmd []interface{},
 	lb *buffer.LinearBuffer,
-	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
+	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer) {
 
 	var err error
+
 	switch cmd[0] {
 	case "insert":
 		lb, rb, err = testInsert(
@@ -191,7 +222,11 @@ func testCommand(
 		lb, rb, err = testSubstr(
 			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
 	}
-	return lb, rb, err
+	if err != nil {
+		log.Printf("cmd failed: %v\n   %v\n", cmd, err)
+		printStats()
+	}
+	return lb, rb
 }
 
 func testInsert(
@@ -222,8 +257,6 @@ func testInsertIn(
 	lb *buffer.LinearBuffer,
 	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
 
-	dsmu.Lock()
-	defer dsmu.Unlock()
 	lb1, err1 := lb.InsertIn(dot, text)
 	rb1, err2 := rb.InsertIn(dot, text)
 	if err1 != nil || err2 != nil {
@@ -276,8 +309,6 @@ func testDeleteIn(
 	lb *buffer.LinearBuffer,
 	rb *buffer.RopeBuffer) (*buffer.LinearBuffer, *buffer.RopeBuffer, error) {
 
-	dsmu.Lock()
-	defer dsmu.Unlock()
 	lb1, err1 := lb.DeleteIn(dot, size)
 	rb1, err2 := rb.DeleteIn(dot, size)
 	if err1 != nil || err2 != nil {
@@ -396,14 +427,57 @@ func incrStat(key string) {
 	stats[key] = stats[key] + 1
 }
 
-func printStats(stats map[string]int64) {
+func printStats() {
+	log.Printf("seed: %v\n", options.seed)
+	// verify persistant values.
+	log.Printf("verifying %v persistant values ...\n", len(persistValues))
+	for rb, refstr := range persistValues {
+		if refstr != string(rb.Value()) {
+			log.Println("Mismatch ...\n%s\n%s\n\n", refstr, string(rb.Value()))
+		}
+	}
+
+	// format and print statistics
+	total := int64(0)
+	for _, val := range stats {
+		total += val
+	}
+	log.Printf("total: %v\n", total)
+
 	keys := make([]string, 0, len(stats))
 	for k := range stats {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	fmt.Println("Stats:")
+	log.Println("Stats:")
 	for _, k := range keys {
-		fmt.Printf("    %v: %v\n", k, stats[k])
+		log.Printf("    %v: %v\n", k, stats[k])
 	}
+}
+
+func generateCommands(text []byte, count int) []string {
+	commandsList := make([]string, count)
+	// compile
+	root, _ := monster.Y(parsec.NewScanner(text))
+	for i := 0; i < count; i++ {
+		scope := root.(monstc.Scope)
+		nterms := scope["_nonterminals"].(monstc.NTForms)
+		scope = monster.BuildContext(scope, options.seed, options.bagdir)
+		scope["_prodfile"] = options.prodfile
+
+		// evaluate
+		scope = scope.ApplyGlobalForms()
+		val := monster.EvalForms("root", scope, nterms["s"])
+		commandsList[i] = val.(string)
+	}
+	return commandsList
+}
+
+func signalCatcher() {
+	ch := make(chan os.Signal)
+	signal.Notify(ch, syscall.SIGINT)
+	<-ch
+	log.Println("CTRL-C; exiting")
+	printStats()
+	os.Exit(0)
 }

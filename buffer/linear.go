@@ -40,7 +40,7 @@ func (lb *LinearBuffer) Value() []byte {
 
 func (lb *LinearBuffer) Slice(bCur, bn int64) ([]byte, error) {
 	if lb == nil {
-		return nil, nil
+		return nil, ErrorBufferNil
 	} else if l := int64(len(lb.Text)); bCur < 0 || bCur > l {
 		return nil, ErrorIndexOutofbound
 	} else if end := bCur + bn; end < 0 || end > int64(len(lb.Text)) {
@@ -71,7 +71,7 @@ func (lb *LinearBuffer) Runes() ([]rune, error) {
 // RuneSlice implement Buffer{} interface.
 func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	if lb == nil {
-		return nil, 0, nil
+		return nil, 0, ErrorBufferNil
 	} else if rn == 0 {
 		return []rune{}, 0, nil
 	} else if l := int64(len(lb.Text)); bCur < 0 || bCur >= l {
@@ -132,7 +132,7 @@ func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
 	if text == nil {
 		return lb, nil
 	} else if lb == nil {
-		return NewLinearBuffer(textb), nil
+		return lb, ErrorBufferNil
 	} else if bCur < 0 || bCur > int64(len(lb.Text)) {
 		return lb, ErrorIndexOutofbound
 	}
@@ -182,9 +182,11 @@ func (lb *LinearBuffer) Delete(bCur, rn int64) (*LinearBuffer, error) {
 func (lb *LinearBuffer) InsertIn(bCur int64, text []rune) (*LinearBuffer, error) {
 	textb := []byte(string(text)) // TODO: this could be inefficient
 	x := int64(len(lb.Text))
-	if text == nil {
+	if text == nil || len(textb) == 0 {
 		return lb, nil
-	} else if lb == nil || x == 0 {
+	} else if lb == nil {
+		return lb, ErrorBufferNil
+	} else if x == 0 {
 		return NewLinearBuffer(textb), nil
 	} else if bCur < 0 || bCur > x {
 		return lb, ErrorIndexOutofbound

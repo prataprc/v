@@ -69,7 +69,7 @@ func (rb *RopeBuffer) Value() []byte {
 // Slice implement Buffer{} interface.
 func (rb *RopeBuffer) Slice(bCur, bn int64) ([]byte, error) {
 	if rb == nil {
-		return nil, nil
+		return nil, ErrorBufferNil
 	} else if bn == 0 || rb.Len == 0 {
 		return []byte{}, nil
 	} else if bCur < 0 || bCur > rb.Len {
@@ -165,7 +165,7 @@ func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
 		return rb, nil
 
 	} else if rb == nil {
-		return NewRopebuffer([]byte(string(text)), rb.Cap)
+		return rb, ErrorBufferNil
 
 	} else if bCur < 0 || bCur > rb.Len {
 		return rb, ErrorIndexOutofbound
@@ -218,9 +218,11 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 // InsertIn implement Buffer{} interface.
 func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 	textb := []byte(string(text)) // TODO: this could be inefficient
-	if text == nil {
+	if text == nil || len(textb) == 0 {
 		return rb, nil
-	} else if rb == nil || rb.Len == 0 {
+	} else if rb == nil {
+		return rb, ErrorBufferNil
+	} else if rb.Len == 0 {
 		return NewRopebuffer(textb, rb.Cap)
 	} else if bCur < 0 || bCur > rb.Len {
 		return rb, ErrorIndexOutofbound
@@ -228,7 +230,12 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 
 	if rb.isLeaf() { // make inplace modification
 		text := ioInsert(rb.Text, textb, bCur)
-		return NewRopebuffer(text, rb.Cap)
+		newrb, err := NewRopebuffer(text, rb.Cap)
+		if err != nil {
+			return rb, err
+		}
+		rb.copyrefs(newrb)
+		return rb, nil
 	}
 	if bCur >= rb.Weight {
 		right, err := rb.Right.InsertIn(bCur-rb.Weight, text)
@@ -313,6 +320,12 @@ func (rb *RopeBuffer) Walk(bCur int64, walkFn JohnnieWalker) {
 
 func (rb *RopeBuffer) isLeaf() bool {
 	return rb.Left == nil
+}
+
+func (rb *RopeBuffer) copyrefs(newrb *RopeBuffer) {
+	rb.Text = newrb.Text
+	rb.Weight, rb.Len, rb.Cap = newrb.Weight, newrb.Len, newrb.Cap
+	rb.Left, rb.Right = newrb.Left, newrb.Right
 }
 
 func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
@@ -628,12 +641,11 @@ func (s rbStats) incVariance(avg, varc float64, n, an int64) float64 {
 }
 
 func ioInsert(dest, text []byte, bCur int64) []byte {
-	x, y := int64(len(dest)), int64(len(text))
-	newt := make([]byte, x+y)
-	copy(newt[:bCur], dest[:bCur])
-	copy(newt[bCur:bCur+y], text)
-	copy(newt[bCur+y:], dest[bCur:])
-	return newt
+	leftSl := make([]byte, int64(len(dest))-bCur)
+	copy(leftSl, dest[bCur:])
+	dest = append(dest[:bCur], text...)
+	dest = append(dest, leftSl...)
+	return dest
 }
 
 func ioDelete(dest []byte, bCur int64, n int64) []byte {
