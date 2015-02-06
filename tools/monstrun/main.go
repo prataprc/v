@@ -175,9 +175,13 @@ func doCommands(num int, ch chan []string) (i int, j int) {
 					lb, rb = getds(true, false)
 				}
 
-				//log.Printf("start-routine%d {%d,%d} %v %p %p\n", num, i, j, cmd, lb, rb)
+				//log.Printf(
+				//    "start-routine%d {%d,%d} %v %p(%d) %p(%d)\n",
+				//    num, i, j, cmd, lb, len(lb.Text), rb, rb.Len)
 				lb, rb = testCommand(cmd.([]interface{}), lb, rb)
-				//log.Printf("end-routine%d {%d,%d} %v %p %p\n", num, i, j, cmd, lb, rb)
+				//log.Printf(
+				//    "end-routine%d {%d,%d} %v %p(%d) %p(%d)\n",
+				//    num, i, j, cmd, lb, len(lb.Text), rb, rb.Len)
 
 				if statkey == "insertin" || statkey == "deletein" {
 					setds(lb, rb, true, true)
@@ -222,9 +226,27 @@ func testCommand(
 		lb, rb, err = testSubstr(
 			int64(cmd[1].(float64)), int64(cmd[2].(float64)), lb, rb)
 	}
+	x, _ := lb.Length()
+	y, _ := rb.Length()
 	if err != nil {
-		log.Printf("cmd failed: %v\n   %v\n", cmd, err)
 		printStats()
+		log.Fatalf(
+			"error: %v\n   %v\n", cmd, err)
+	} else if x != y {
+		printStats()
+		log.Fatalf(
+			"error: %v\n    mismatch in length %p(%d) %p(%d)\n",
+			cmd, lb, x, rb, y)
+	} else if lb == nil {
+		printStats()
+		log.Fatalf(
+			"error: %v\n    mismatch in length %p(%d) %p(%d)",
+			cmd, lb, x, rb, y)
+	} else if rb == nil {
+		printStats()
+		log.Fatalf(
+			"error: %v\n    mismatch in length %p(%d) %p(%d)",
+			cmd, lb, x, rb, y)
 	}
 	return lb, rb
 }
@@ -264,9 +286,7 @@ func testInsertIn(
 			incrStat(err2.Error())
 		}
 		if err1 != err2 {
-			x, _ := lb.Length()
-			y, _ := rb.Length()
-			err := fmt.Errorf("insin: mismatch err %v %v %v %v", err1, err2, x, y)
+			err := fmt.Errorf("insin: mismatch err %v %v", err1, err2)
 			return nil, nil, err
 		} else if err1 != nil {
 			return lb, rb, nil
@@ -290,9 +310,7 @@ func testDelete(
 			incrStat(err2.Error())
 		}
 		if err1 != err2 {
-			x, _ := lb.Length()
-			y, _ := rb.Length()
-			err := fmt.Errorf("del: mismatch err %v %v %v %v", err1, err2, x, y)
+			err := fmt.Errorf("del: mismatch err %v %v", err1, err2)
 			return nil, nil, err
 		} else if err1 != nil {
 			return lb, rb, nil
@@ -316,9 +334,7 @@ func testDeleteIn(
 			incrStat(err2.Error())
 		}
 		if err1 != err2 {
-			x, _ := lb.Length()
-			y, _ := rb.Length()
-			err := fmt.Errorf("delin: mismatch err %v %v %v %v", err1, err2, x, y)
+			err := fmt.Errorf("delin: mismatch err %v %v", err1, err2)
 			return nil, nil, err
 		} else if err1 != nil {
 			return lb, rb, nil
