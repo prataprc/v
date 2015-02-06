@@ -170,11 +170,16 @@ func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
 	} else if bCur < 0 || bCur > rb.Len {
 		return rb, ErrorIndexOutofbound
 	}
-	left, right, err := rb.Split(bCur)
+	textb := []byte(string(text))
+	if len(textb) == 0 { // nothing to insert
+		return rb, nil
+	}
+	insrtRight, err := NewRopebuffer(textb, rb.Cap)
 	if err != nil {
 		return rb, err
 	}
-	insrtRight, err := NewRopebuffer([]byte(string(text)), rb.Cap)
+
+	left, right, err := rb.Split(bCur)
 	if err != nil {
 		return rb, err
 	}
@@ -202,6 +207,8 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 		return rb, ErrorIndexOutofbound
 	} else if end := bCur + size; end < 0 || end > rb.Len {
 		return rb, ErrorIndexOutofbound
+	} else if bCur == 0 && size == rb.Len { // to delete entire buffer
+		return NewRopebuffer([]byte{}, rb.Cap)
 	}
 
 	left, forRight, err := rb.Split(bCur)
@@ -318,6 +325,13 @@ func (rb *RopeBuffer) Walk(bCur int64, walkFn JohnnieWalker) {
 // Local functions
 //----------------
 
+func (rb *RopeBuffer) clear() *RopeBuffer {
+	rb.Text = []byte{}
+	rb.Weight, rb.Len = int64(len(rb.Text)), int64(len(rb.Text))
+	rb.Left, rb.Right = nil, nil
+	return rb
+}
+
 func (rb *RopeBuffer) isLeaf() bool {
 	return rb.Left == nil
 }
@@ -357,7 +371,7 @@ func (rb *RopeBuffer) split(
 	var err error
 	if bCur == rb.Weight { // exact
 		if rb.isLeaf() {
-			return rb, rb.Right, nil
+			return rb, rb.Right /*nil*/, nil
 		}
 		return rb.Left, rb.Right, nil
 

@@ -190,6 +190,20 @@ func TestRopeDeleteBasic(t *testing.T) {
 	} else if err = validateRead(rb, []rune("eo")); err != nil {
 		t.Fatal(err)
 	}
+	// Delete the full buffer
+	rb, err = NewRopebuffer([]byte("hello world"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, _ := rb.Length()
+	rb, err = rb.Delete(0, l)
+	if err != nil {
+		t.Fatal(err)
+	} else if rb == nil {
+		t.Fatalf("cannot return nil")
+	} else if l, _ := rb.Length(); l != 0 {
+		t.Fatalf("extected length ZERO")
+	}
 }
 
 func TestRopePersistence(t *testing.T) {
@@ -504,7 +518,9 @@ func validateRopeBuild(t *testing.T, stats map[string]interface{}) int64 {
 }
 
 func validateRead(rb *RopeBuffer, ref []rune) error {
-	if ref != nil {
+	if rb == nil {
+		return fmt.Errorf("rope-buffer cannot be nil")
+	} else if ref != nil {
 		// verify length
 		if y, err := rb.Length(); err != nil {
 			return err
