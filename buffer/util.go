@@ -1,11 +1,23 @@
 package buffer
 
 import "unicode/utf8"
+import "fmt"
 
-func getRuneStart(text []byte) (int64, error) {
-	for i, b := range text {
-		if utf8.RuneStart(b) {
-			return int64(i), nil
+var _ = fmt.Sprintf("dummy")
+
+func getRuneStart(text []byte, reverse bool) (int64, error) {
+	if reverse { // search for rune start in backward direction
+		for i := len(text) - 1; i >= 0; i-- {
+			if utf8.RuneStart(text[i]) {
+				return int64(i), nil
+			}
+		}
+
+	} else { // search for rune start in forward direction
+		for i, b := range text {
+			if utf8.RuneStart(b) {
+				return int64(i), nil
+			}
 		}
 	}
 	return 0, ErrorInvalidEncoding
