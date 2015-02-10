@@ -5,6 +5,8 @@ import "io"
 
 var _ = fmt.Sprintf("dummy")
 
+const MaxRuneWidth = 10
+
 type Statistics map[string]interface{}
 
 // Buffer describes a buffer and access into buffer, where a

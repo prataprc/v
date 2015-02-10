@@ -6,6 +6,7 @@ import "fmt"
 import "log"
 import "math/rand"
 import "io/ioutil"
+import "unicode/utf8"
 
 var testRopeBufferCapacity = int64(10 * 1024) // 10KB nodes in rope.
 var sampleData []byte                         // contains 2.5MB data.
@@ -240,11 +241,15 @@ func TestRopePersistence(t *testing.T) {
 }
 
 func TestRopeStreamFrom(t *testing.T) {
-	rb, err := NewRopebuffer([]byte("hello world"), 2)
+	var size int
+
+	bytes := []byte(testChinese)
+	rb, err := NewRopebuffer(bytes, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := -1; int64(i) < rb.Len+1; i++ {
+	for i := 0; int64(i) < rb.Len; {
+		_, size = utf8.DecodeRune(bytes[i:])
 		runes := make([]rune, 0)
 		reader := rb.StreamFrom(int64(i))
 		r, _, err := reader.ReadRune()
@@ -259,29 +264,7 @@ func TestRopeStreamFrom(t *testing.T) {
 		} else if x, y := string(runes), string(rb.Value()[i:]); x != y {
 			t.Fatalf("mismatch for %d %q %q", i, x, y)
 		}
-	}
-}
-
-func TestRopeStreamTill(t *testing.T) {
-	rb, err := NewRopebuffer([]byte("hello world"), 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := -1; int64(i) < 6; i++ {
-		runes := make([]rune, 0)
-		reader := rb.StreamTill(int64(i), 6)
-		r, _, err := reader.ReadRune()
-		for err != io.EOF {
-			runes = append(runes, r)
-			r, _, err = reader.ReadRune()
-		}
-		if i == -1 || int64(i) == rb.Len {
-			if len(runes) != 0 {
-				t.Fatalf("mismatch for %d %q", i, string(runes))
-			}
-		} else if x, y := string(runes), string(rb.Value()[i:6]); x != y {
-			t.Fatalf("mismatch for %d %q %q", i, x, y)
-		}
+		i += size
 	}
 }
 
@@ -478,21 +461,19 @@ func BenchmarkRunes2Str(b *testing.B) {
 	b.SetBytes(int64(len(str)))
 }
 
-func BenchmarkStreamFrom(b *testing.B) {
-	rb, err := NewRopebuffer(sampleData, testRopeBufferCapacity)
+func BenchmarkRopeStreamFrom(b *testing.B) {
+	rb, err := NewRopebuffer([]byte(testChinese), 8)
 	if err != nil {
 		b.Fatal(err)
 	}
-	count := 0
 	for i := 0; i < b.N; i++ {
 		reader := rb.StreamFrom(0)
 		_, _, err := reader.ReadRune()
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
-			count++
 		}
 	}
-	b.SetBytes(int64(len(sampleData)))
+	b.SetBytes(int64(len(testChinese)))
 }
 
 func validateRopeBuild(t *testing.T, stats map[string]interface{}) int64 {

@@ -223,7 +223,7 @@ func (lb *LinearBuffer) DeleteIn(bCur, rn int64) (*LinearBuffer, error) {
 // StreamFrom implement Buffer interface{}.
 func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
 	return iterator(func() (r rune, size int, err error) {
-		if bCur > int64(len(lb.Text)) {
+		if bCur >= int64(len(lb.Text)) {
 			return r, size, io.EOF
 		}
 		r, size = utf8.DecodeRune(lb.Text[bCur:])
@@ -240,6 +240,48 @@ func (lb *LinearBuffer) StreamTill(bCur, end int64) io.RuneReader {
 		}
 		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		bCur += int64(size)
+		return r, size, nil
+	})
+}
+
+// BackStreamFrom implement Buffer interface{}.
+func (lb *LinearBuffer) BackStreamFrom(bCur int64) io.RuneReader {
+	return iterator(func() (r rune, size int, err error) {
+		if bCur == 0 {
+			return r, size, io.EOF
+		}
+		from := bCur - MaxRuneWidth
+		if from < 0 {
+			from = 0
+		}
+		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
+		if err != nil {
+			return r, size, err
+		}
+		bCur = from + n
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
+		return r, size, nil
+	})
+}
+
+// BackStreamTill implement Buffer interface{}.
+func (lb *LinearBuffer) BackStreamTill(bCur, end int64) io.RuneReader {
+	return iterator(func() (r rune, size int, err error) {
+		if bCur == 0 {
+			return r, size, io.EOF
+		}
+		from := bCur - MaxRuneWidth
+		if from < 0 {
+			from = 0
+		} else if from < end {
+			from = end
+		}
+		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
+		if err != nil {
+			return r, size, err
+		}
+		bCur = from + n
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		return r, size, nil
 	})
 }

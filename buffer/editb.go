@@ -1,5 +1,7 @@
 package buffer
 
+import "regexp"
+
 // EditBuffer manages a single edit buffer datastructure that
 // implements Buffer interface{}.
 //
@@ -10,21 +12,35 @@ package buffer
 // Not thread safe.
 type EditBuffer struct {
 	dot    int64  // cursor within the edit buffer
+	atEol  bool   // stick cursor to end-of-line
+	atBol  bool   // stick cursor to beginning-of-line
 	buffer Buffer // buffer data-structure
 	ronly  bool   // buffer is read-only
 	// parent and children are used to manage the change tree.
 	parent   *EditBuffer
 	children []*EditBuffer
+	// buffer-settings
+	newline []rune // list of runes that act as newline.
+	// buffer management
+	reNl *regexp.Regexp
 }
 
 // NewEditBuffer create a new read-write buffer.
 func NewEditBuffer(dot int64, buffer Buffer, parent *EditBuffer) *EditBuffer {
+	var err error
+
 	ebuf := &EditBuffer{
 		dot:      dot,
 		buffer:   buffer,
 		ronly:    false,
 		parent:   parent,
 		children: make([]*EditBuffer, 0),
+	}
+	// settings.
+	ebuf.newline = []rune{'\n'}
+	// buffer management
+	if ebuf.reNl, err = regexp.Compile(string(ebuf.newline)); err != nil {
+		panic(err)
 	}
 	return ebuf
 }
@@ -101,10 +117,75 @@ func (ebuf *EditBuffer) RedoChange(n int64) *EditBuffer {
 // Cursor movement
 //----------------
 
-// MoveTo new cursor position to the right, if `dot` is positive,
-// else if negative move to left.
-func (ebuf *EditBuffer) MoveTo(dot int64, mode int) *EditBuffer {
+// Goto move cursor to obsolute position specified by dot.
+// 0 <= dot <= len(buffer)
+func (ebuf *EditBuffer) Goto(dot int64) *EditBuffer {
 	ebuf.dot = dot
+	return ebuf
+}
+
+// Goto0 move cursor position to beginning of the buffer.
+func (ebuf *EditBuffer) Goto0() *EditBuffer {
+	if ebuf.buffer == nil {
+		return ebuf
+	}
+	ebuf.dot = 0
+	return ebuf
+}
+
+// GotoZ move cursor position to end of the buffer.
+func (ebuf *EditBuffer) GotoZ() *EditBuffer {
+	if ebuf.buffer == nil {
+		return ebuf
+	}
+	var err error
+	if ebuf.dot, err = ebuf.buffer.Length(); err != nil {
+		panic(err)
+	}
+	return ebuf
+}
+
+// Goright by n runes, don't go beyond the end-of-line.
+// A negative value means moving the cursor left.
+func (ebuf *EditBuffer) Goright(n int64) *EditBuffer {
+	till, err := ebuf.buffer.Length()
+	if err != nil {
+		panic(err)
+	}
+	loc := ebuf.reNl.FindReaderIndex(ebuf.buffer.StreamFrom(ebuf.dot))
+	if loc != nil {
+		till = int64(loc[0])
+	}
+	ebuf.dot = ebuf.dot + n
+	if ebuf.dot >= till {
+		ebuf.dot = till - 1
+	}
+	return ebuf
+}
+
+// GoEol move cursor to end of line.
+func (ebuf *EditBuffer) GoEol(n int64) *EditBuffer {
+	loc := ebuf.reNl.FindReaderIndex(ebuf.buffer.StreamFrom(ebuf.dot))
+	if loc != nil {
+		ebuf.dot = int64(loc[0]) - 1
+		return ebuf
+	}
+	till, err := ebuf.buffer.Length()
+	if err != nil {
+		panic(err)
+	}
+	ebuf.dot = till - 1
+	return ebuf
+}
+
+// Godown by n lines, don't go beyond buffer end.
+// A negative value means moving the cursor up.
+func (ebuf *EditBuffer) Godown(n int64) *EditBuffer {
+	return ebuf
+}
+
+// GotoColumn move cursor to column specified by n.
+func (ebuf *EditBuffer) GotoColumn(n int64) *EditBuffer {
 	return ebuf
 }
 

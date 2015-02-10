@@ -346,12 +346,13 @@ func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
 	var left, right, x, y *RopeBuffer
 
 	if rb.isLeaf() && rb.Len > 0 && rb.Len > capacity {
-		n, err := getRuneStart(rb.Text[capacity:])
+		splitAt := rb.Len / 2
+		n, err := getRuneStart(rb.Text[splitAt:], false /*reverse*/)
 		if err != nil {
 			return nil, err
 		}
-		splitAt := rb.Len + n
-		if left, right, err = rb.Split(splitAt / 2); err != nil {
+		splitAt = splitAt + n
+		if left, right, err = rb.Split(splitAt); err != nil {
 			return nil, err
 		}
 		if x, err = left.build(capacity); err != nil {
