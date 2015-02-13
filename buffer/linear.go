@@ -57,6 +57,9 @@ func (lb *LinearBuffer) RuneAt(bCur int64) (ch rune, size int, err error) {
 		return ch, size, ErrorIndexOutofbound
 	}
 	ch, size = utf8.DecodeRune(lb.Text[bCur:])
+	if ch == utf8.RuneError {
+		return ch, 0, ErrorInvalidEncoding
+	}
 	return ch, size, nil
 }
 
@@ -267,7 +270,7 @@ func (lb *LinearBuffer) BackStreamFrom(bCur int64) io.RuneReader {
 // BackStreamTill implement Buffer interface{}.
 func (lb *LinearBuffer) BackStreamTill(bCur, end int64) io.RuneReader {
 	return iterator(func() (r rune, size int, err error) {
-		if bCur == 0 {
+		if bCur <= end {
 			return r, size, io.EOF
 		}
 		from := bCur - MaxRuneWidth

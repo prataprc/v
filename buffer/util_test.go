@@ -34,7 +34,7 @@ func TestGetRuneStart(t *testing.T) {
 	}
 }
 
-func TestGetRuneStartReverse(t *testing.T) {
+func TestGetRuneStartR(t *testing.T) {
 	var err error
 
 	offs := make([]int64, 0)
@@ -65,7 +65,7 @@ func TestGetRuneStartReverse(t *testing.T) {
 func TestBytes2RunesN(t *testing.T) {
 	refrn := int64(len([]rune(testChinese)))
 	acc := make([]rune, refrn)
-	rn, size, err := bytes2RunesN([]byte(testChinese), refrn, acc)
+	rn, size, err := bytes2NRunes([]byte(testChinese), refrn, acc)
 	if err != nil {
 		t.Fatal(err)
 	} else if rn != refrn {
@@ -86,22 +86,36 @@ func TestBytes2Runes(t *testing.T) {
 	}
 }
 
+func TestRunePositions(t *testing.T) {
+	runes := runePositions([]byte(testChinese))
+	if len(runes) != 51 {
+		t.Fatalf("expected %v, got %v\n", 51, len(runes))
+	}
+}
+
+func TestReverseRunes(t *testing.T) {
+	runes := []rune(testChinese)
+	doubler := reverseRunes(reverseRunes(runes))
+	if string(runes) != string(doubler) {
+		t.Fatalf("expected %v, got %v\n", 51, string(runes), string(doubler))
+	}
+}
+
 func BenchmarkGetRuneStart(b *testing.B) {
 	bytes := []byte(testChinese)
 	for j := 0; j < b.N; j++ {
 		for i := int64(0); i < int64(len(testChinese)); i++ {
-			n, _ := getRuneStart(bytes[i:], false)
-			i += n
+			getRuneStart(bytes[i:], false)
 		}
 	}
 	b.SetBytes(int64(len(testChinese)))
 }
 
-func BenchmarkGetRuneStartRev(b *testing.B) {
+func BenchmarkGetRuneStartR(b *testing.B) {
 	bytes := []byte(testChinese)
 	for j := 0; j < b.N; j++ {
-		for n := int64(len(bytes)); n > 0; {
-			n, _ = getRuneStart([]byte(bytes[:n]), true)
+		for n := int64(len(bytes)); n > 0; n-- {
+			getRuneStart([]byte(bytes[:n]), true)
 		}
 	}
 	b.SetBytes(int64(len(testChinese)))
@@ -112,7 +126,7 @@ func BenchmarkBytes2RunesN(b *testing.B) {
 	refrn := int64(len([]rune(testChinese)))
 	acc := make([]rune, refrn)
 	for i := 0; i < b.N; i++ {
-		bytes2RunesN(bytes, refrn, acc)
+		bytes2NRunes(bytes, refrn, acc)
 	}
 	b.SetBytes(int64(len(testChinese)))
 }
@@ -121,6 +135,22 @@ func BenchmarkBytes2Runes(b *testing.B) {
 	bytes := []byte(testChinese)
 	for i := 0; i < b.N; i++ {
 		bytes2Runes(bytes)
+	}
+	b.SetBytes(int64(len(testChinese)))
+}
+
+func BenchmarkRunePositions(b *testing.B) {
+	bytes := []byte(testChinese)
+	for i := 0; i < b.N; i++ {
+		runePositions(bytes)
+	}
+	b.SetBytes(int64(len(testChinese)))
+}
+
+func BenchmarkReverseRunes(b *testing.B) {
+	runes := []rune(testChinese)
+	for i := 0; i < b.N; i++ {
+		reverseRunes(runes)
 	}
 	b.SetBytes(int64(len(testChinese)))
 }

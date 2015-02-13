@@ -5,15 +5,20 @@ import "fmt"
 
 var _ = fmt.Sprintf("dummy")
 
+// figure out unicode boundary within `text`,
+// if `reverse` is true, figure out the unicode
+// boundary from backward.
 func getRuneStart(text []byte, reverse bool) (int64, error) {
-	if reverse { // search for rune start in backward direction
+	// search for rune start in backward direction
+	if reverse {
 		for i := len(text) - 1; i >= 0; i-- {
 			if utf8.RuneStart(text[i]) {
 				return int64(i), nil
 			}
 		}
 
-	} else { // search for rune start in forward direction
+		// search for rune start in forward direction
+	} else {
 		for i, b := range text {
 			if utf8.RuneStart(b) {
 				return int64(i), nil
@@ -23,7 +28,10 @@ func getRuneStart(text []byte, reverse bool) (int64, error) {
 	return 0, ErrorInvalidEncoding
 }
 
-func bytes2RunesN(bs []byte, rn int64, acc []rune) (int64, int64, error) {
+// decode array of utf8 encoded bytes to unicode runes,
+// stop decoding once `rn` number of runes are decoded.
+// return the number of runes decoded, bytes consumed.
+func bytes2NRunes(bs []byte, rn int64, acc []rune) (int64, int64, error) {
 	size, count := int64(0), int64(0)
 	for size < int64(len(bs)) {
 		r, sz := utf8.DecodeRune(bs[size:])
@@ -39,15 +47,39 @@ func bytes2RunesN(bs []byte, rn int64, acc []rune) (int64, int64, error) {
 	return count, size, nil
 }
 
+// decode arrayn of utf8 encoded bytes to unicode runes.
 func bytes2Runes(bs []byte) ([]rune, error) {
-	runes := make([]rune, 0, len(bs)/8)
-	for i := 0; i < len(bs); {
+	runes := make([]rune, len(bs))
+	i, n := 0, 0
+	for ; i < len(bs); n++ {
 		r, sz := utf8.DecodeRune(bs[i:])
 		if r == utf8.RuneError {
 			return nil, ErrorInvalidEncoding
 		}
-		runes = append(runes, r)
-		i = i + sz
+		runes[n] = r
+		i += sz
 	}
-	return runes, nil
+	return runes[:n], nil
+}
+
+func runePositions(bs []byte) []int64 {
+	offs := make([]int64, len(bs))
+	i, n := 0, 0
+	for ; i < len(bs); n++ {
+		r, sz := utf8.DecodeRune(bs[i:])
+		if r == utf8.RuneError {
+			panic(utf8.RuneError)
+		}
+		offs[n] = int64(i)
+		i += sz
+	}
+	return offs[:n]
+}
+
+func reverseRunes(runes []rune) []rune {
+	reversed := make([]rune, len(runes))
+	for i, j := 0, len(runes)-1; i < len(runes); i, j = i+1, j-1 {
+		reversed[j] = runes[i]
+	}
+	return reversed
 }
