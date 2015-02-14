@@ -39,3 +39,5 @@ const (
 	ModeEx     byte = iota
 	ModeVisual byte = iota
 )
+
+const Newline = `\n`
