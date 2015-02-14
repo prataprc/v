@@ -332,10 +332,10 @@ func BenchmarkLinearDelIn2M(b *testing.B) {
 }
 
 func BenchmarkLinearStrmFrm(b *testing.B) {
-	var err error
 	lb := NewLinearBuffer([]byte(testChinese))
-	reader := lb.StreamFrom(0)
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := lb.StreamFrom(0)
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -344,10 +344,12 @@ func BenchmarkLinearStrmFrm(b *testing.B) {
 }
 
 func BenchmarkLinearStrmTill(b *testing.B) {
-	var err error
 	lb := NewLinearBuffer([]byte(testChinese))
-	reader := lb.StreamFrom(0)
+	offs := runePositions([]byte(testChinese))
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := lb.StreamTill(0, int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -356,12 +358,12 @@ func BenchmarkLinearStrmTill(b *testing.B) {
 }
 
 func BenchmarkLinearBStrmFrm(b *testing.B) {
-	var err error
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.BackStreamFrom(offs[len(offs)-1])
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := lb.BackStreamFrom(offs[len(offs)-1])
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -370,11 +372,11 @@ func BenchmarkLinearBStrmFrm(b *testing.B) {
 }
 
 func BenchmarkLinearBStrmTil(b *testing.B) {
-	var err error
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := lb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}

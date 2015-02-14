@@ -570,10 +570,10 @@ func BenchmarkRopeDelIn2M(b *testing.B) {
 }
 
 func BenchmarkRopeStrmFrm(b *testing.B) {
-	var err error
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
-	reader := rb.StreamFrom(0)
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := rb.StreamFrom(0)
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -582,10 +582,11 @@ func BenchmarkRopeStrmFrm(b *testing.B) {
 }
 
 func BenchmarkRopeStrmTill(b *testing.B) {
-	var err error
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
-	reader := rb.StreamFrom(0)
+	offs := runePositions([]byte(testChinese))
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := rb.StreamTill(0, int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -594,12 +595,12 @@ func BenchmarkRopeStrmTill(b *testing.B) {
 }
 
 func BenchmarkRopeBStrmFrm(b *testing.B) {
-	var err error
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
 	offs := runePositions([]byte(testChinese))
-	reader := rb.BackStreamFrom(offs[len(offs)-1])
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := rb.BackStreamFrom(offs[len(offs)-1])
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -608,11 +609,11 @@ func BenchmarkRopeBStrmFrm(b *testing.B) {
 }
 
 func BenchmarkRopeBStrmTil(b *testing.B) {
-	var err error
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
 	offs := runePositions([]byte(testChinese))
-	reader := rb.BackStreamTill(offs[len(offs)-1], 0)
 	for i := 0; i < b.N; i++ {
+		var err error
+		reader := rb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}

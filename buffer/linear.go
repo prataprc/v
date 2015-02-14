@@ -82,19 +82,29 @@ func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 	} else if l == 0 {
 		return nil, 0, ErrorIndexOutofbound
 	}
-	runes, size := make([]rune, 0, rn), int64(0)
-	for i := int64(0); i < rn; i++ {
-		ch, sz := utf8.DecodeRune(lb.Text[bCur+size:])
-		if ch == utf8.RuneError {
-			return nil, 0, ErrorInvalidEncoding
-		}
-		runes = append(runes, ch)
-		size += int64(sz)
-		if bCur+size >= int64(len(lb.Text)) {
+
+	var reader io.RuneReader
+	if rn > 0 {
+		reader = lb.StreamTill(bCur, rn)
+	} else {
+		reader = lb.BackStreamTill(bCur, rn)
+	}
+
+	var err error
+	var r rune
+	var sz int
+	i, runes, size := 0, make([]rune, rn), int64(0)
+	for {
+		if r, sz, err = reader.ReadRune(); err == io.EOF {
 			break
+		} else if err == nil {
+			runes[i] = r
+			i, size = i+1, size+int64(sz)
+		} else {
+			return nil, 0, err
 		}
 	}
-	return runes, size, nil
+	return runes[:i], size, nil
 }
 
 // Concat implement Buffer{} interface.

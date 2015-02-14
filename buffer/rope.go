@@ -128,14 +128,28 @@ func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 		return nil, 0, ErrorIndexOutofbound
 	}
 
-	acc := make([]rune, rn)
-	count, size, err := rb.runes(bCur, rn, acc)
-	if err != nil {
-		return nil, 0, err
-	} else if count < rn && bCur+size != rb.Len {
-		panic("mismatch in decoded bytes and length")
+	var reader io.RuneReader
+	if rn > 0 {
+		reader = rb.StreamTill(bCur, rn)
+	} else {
+		reader = rb.BackStreamTill(bCur, rn)
 	}
-	return acc[:count], size, nil
+
+	var err error
+	var r rune
+	var sz int
+	i, runes, size := 0, make([]rune, rn), int64(0)
+	for {
+		if r, sz, err = reader.ReadRune(); err == io.EOF {
+			break
+		} else if err == nil {
+			runes[i] = r
+			i, size = i+1, size+int64(sz)
+		} else {
+			return nil, 0, err
+		}
+	}
+	return runes[:i], size, nil
 }
 
 // Concat implement Buffer{} interface.
