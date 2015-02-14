@@ -2,6 +2,7 @@ package buffer
 
 import "fmt"
 import "io"
+import "regexp"
 
 var _ = fmt.Sprintf("dummy")
 
@@ -100,4 +101,28 @@ type iterator func() (r rune, size int, err error)
 // ReadRune implements io.RuneReader interface{}.
 func (fn iterator) ReadRune() (rune, int, error) {
 	return fn()
+}
+
+// Find `regex` pattern within buffer streamed by io.RuneReader
+// streaming can be in any direction and regex is expected to be
+// specified accordingly.
+func Find(regex interface{}, r io.RuneReader) Finder {
+	var re *regexp.Regexp
+	var err error
+
+	switch v := regex.(type) {
+	case string:
+		re, err = regexp.Compile(v)
+		if err != nil {
+			panic(err)
+		}
+	case *regexp.Regexp:
+		re = v
+	case func() *regexp.Regexp:
+		re = v()
+	default:
+		panic("impossible situation")
+	}
+
+	return Finder(func() []int { return re.FindReaderIndex(r) })
 }
