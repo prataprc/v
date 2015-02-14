@@ -78,9 +78,17 @@ type Buffer interface {
 	// StreamFrom returns a RuneReader starting from `bCur`.
 	StreamFrom(bCur int64) io.RuneReader
 
-	// StreamTill returns a RuneReader starting from `bCur` till
-	// `end`, not including end.
-	StreamTill(bCur, end int64) io.RuneReader
+	// StreamTill returns a RuneReader starting from `bCur` for
+	// `count` number of runes.
+	StreamTill(bCur, count int64) io.RuneReader
+
+	// BackStreamFrom returns a RuneReader starting from `bCur`,
+	// streaming in the backward direction.
+	BackStreamFrom(bCur int64) io.RuneReader
+
+	// BackStreamTill returns a RuneReader starting from `bCur` for
+	// `count` number of runes, in the backward direction.
+	BackStreamTill(bCur, count int64) io.RuneReader
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)

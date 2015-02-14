@@ -36,7 +36,7 @@ func TestLinearStreamTil(t *testing.T) {
 	var size int
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.StreamTill(0, offs[10])
+	reader := lb.StreamTill(0, 10)
 	totalrn, totalsize, runes := 0, 0, make([]rune, 10)
 	for err != io.EOF {
 		r, size, err = reader.ReadRune()
@@ -86,7 +86,7 @@ func TestLinearBackStreamTill(t *testing.T) {
 	var size int
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.BackStreamTill(offs[10], offs[1])
+	reader := lb.BackStreamTill(offs[10], 9)
 	totalrn, totalsize, runes := 0, 0, make([]rune, 9)
 	for err != io.EOF {
 		r, size, err = reader.ReadRune()
@@ -373,7 +373,7 @@ func BenchmarkLinearBStrmTil(b *testing.B) {
 	var err error
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.BackStreamTill(offs[len(offs)-1], 0)
+	reader := lb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
 	for i := 0; i < b.N; i++ {
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()

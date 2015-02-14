@@ -217,7 +217,7 @@ func TestRopeStreamFrom(t *testing.T) {
 				t.Fatalf("mismatch for %d %q", off, string(runes))
 			}
 		} else if x, y := string(runes), string(rb.Value()[off:]); x != y {
-			t.Fatalf("mismatch for %d %q %q", off, x, y)
+			t.Fatalf("mismatch for %d %q, got %q", off, y, x)
 		}
 	}
 }
@@ -228,24 +228,28 @@ func TestRopeStreamTill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ref, err := rb.Runes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	offs := runePositions(bytes)
-	offs = append(append([]int64{}, -1), offs...)
 	for i, off := range offs {
 		runes := make([]rune, 0)
-		n := rand.Intn(len(offs)-i) + i
-		for reader := rb.StreamTill(off, offs[n]); true; {
+		n := rand.Intn(len(offs) - i)
+		for reader := rb.StreamTill(off, int64(n)); true; {
 			r, _, err := reader.ReadRune()
 			if err == io.EOF {
 				break
 			}
 			runes = append(runes, r)
 		}
-		if off == -1 || n == i {
+		x, y := string(runes), string(ref[i:i+n])
+		if n == i {
 			if len(runes) != 0 {
 				t.Fatalf("mismatch for %d %q", off, string(runes))
 			}
-		} else if x, y := string(runes), string(rb.Value()[off:offs[n]]); x != y {
-			t.Fatalf("mismatch for %d %q %q", off, x, y)
+		} else if x != y {
+			t.Fatalf("mismatch for %d %q, got %q", off, y, x)
 		}
 	}
 }
@@ -256,8 +260,11 @@ func TestRopeBackStreamFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ref, err := rb.Runes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	offs := runePositions(bytes)
-	offs = append(append([]int64{}, -1), offs...)
 	for i, off := range offs {
 		runes := make([]rune, 0)
 		for reader := rb.BackStreamFrom(off); true; {
@@ -268,14 +275,11 @@ func TestRopeBackStreamFrom(t *testing.T) {
 			runes = append(runes, r)
 		}
 		runes = reverseRunes(runes)
-		ref, err := rb.Runes()
-		if err != nil {
-			t.Fatal(err)
-		} else if off == -1 || off == rb.Len {
+		if off == rb.Len {
 			if len(runes) != 0 {
 				t.Fatalf("mismatch for %d %q", off, string(runes))
 			}
-		} else if x, y := string(runes), string(ref[0:i]); x != y {
+		} else if x, y := string(runes), string(ref[0:i+1]); x != y {
 			t.Fatalf("mismatch for {%d,%d} %q, got %q", off, i, y, x)
 		}
 	}
@@ -287,11 +291,15 @@ func TestRopeBackStreamTill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ref, err := rb.Runes()
+	if err != nil {
+		t.Fatal(err)
+	}
 	offs := runePositions(bytes)
 	for i, off := range offs {
 		runes := make([]rune, 0)
 		n := rand.Intn(i + 1)
-		for reader := rb.BackStreamTill(off, offs[n]); true; {
+		for reader := rb.BackStreamTill(off, int64(n)); true; {
 			r, _, err := reader.ReadRune()
 			if err == io.EOF {
 				break
@@ -299,14 +307,7 @@ func TestRopeBackStreamTill(t *testing.T) {
 			runes = append(runes, r)
 		}
 		runes = reverseRunes(runes)
-		ref, err := rb.Runes()
-		if err != nil {
-			t.Fatal(err)
-		} else if off == -1 {
-			if len(runes) != 0 {
-				t.Fatalf("mismatch for %d %q", off, string(runes))
-			}
-		} else if x, y := string(runes), string(ref[n:i+1]); x != y {
+		if x, y := string(runes), string(ref[i-n+1:i+1]); x != y {
 			t.Fatalf("mismatch for {%d,%d,%d} %q, got %q", off, n, i, y, x)
 		}
 	}
