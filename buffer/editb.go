@@ -1,6 +1,9 @@
 package buffer
 
 import "regexp"
+import "fmt"
+
+type Finder func() []int
 
 // EditBuffer manages a single edit buffer datastructure that
 // implements Buffer interface{}.
@@ -11,62 +14,195 @@ import "regexp"
 //
 // Not thread safe.
 type EditBuffer struct {
-	dot    int64  // cursor within the edit buffer
-	atEol  bool   // stick cursor to end-of-line
-	atBol  bool   // stick cursor to beginning-of-line
-	buffer Buffer // buffer data-structure
-	ronly  bool   // buffer is read-only
-	// parent and children are used to manage the change tree.
-	parent   *EditBuffer
-	children []*EditBuffer
-	// buffer-settings
-	newline []rune // list of runes that act as newline.
-	// buffer management
-	reNl *regexp.Regexp
+    dot    int64  // cursor within the edit buffer
+    buffer Buffer // buffer data-structure
+    ronly  bool   // buffer is read-only
+    // parent and children are used to manage the change tree.
+    parent   *EditBuffer
+    children []*EditBuffer
+    // buffer settings
+    newline string // list of runes that act as newline
+    // buffer context
+    lines Lines
+    atEol bool           // stick cursor to end-of-line
+    atBol bool           // stick cursor to beginning-of-line
+    reNl  *regexp.Regexp // compiled newline
+    reNlR *regexp.Regexp // compiled newline in reverse order
 }
 
 // NewEditBuffer create a new read-write buffer.
 func NewEditBuffer(dot int64, buffer Buffer, parent *EditBuffer) *EditBuffer {
-	var err error
-
-	ebuf := &EditBuffer{
-		dot:      dot,
-		buffer:   buffer,
-		ronly:    false,
-		parent:   parent,
-		children: make([]*EditBuffer, 0),
-	}
-	// settings.
-	ebuf.newline = []rune{'\n'}
-	// buffer management
-	if ebuf.reNl, err = regexp.Compile(string(ebuf.newline)); err != nil {
-		panic(err)
-	}
-	return ebuf
+    ebuf := &EditBuffer{
+        dot:      dot,
+        buffer:   buffer,
+        ronly:    false,
+        parent:   parent,
+        children: make([]*EditBuffer, 0),
+    }
+    ebuf.Initialize(ebuf)
+    return ebuf
 }
 
 // NewReadOnlyBuffer create a new read-only buffer.
 func NewReadOnlyBuffer(dot int64, buffer Buffer) *EditBuffer {
-	ebuf := NewEditBuffer(dot, buffer, nil)
-	ebuf.ronly = true
-	return ebuf
+    ebuf := NewEditBuffer(dot, buffer, nil)
+    ebuf.ronly = true
+    return ebuf
+}
+
+// Initialize EditBuffer.
+func (ebuf *EditBuffer) Initialize(parent *EditBuffer) *EditBuffer {
+    var err error
+
+    if ebuf.newline == "" {
+        ebuf.newline = Newline
+    }
+    nl := ebuf.newline
+    if ebuf.reNl, err = regexp.Compile(nl); err != nil {
+        panic("impossible regular expression")
+    }
+    ebuf.reNlR, err = regexp.Compile(string(reverseRunes([]rune(nl))))
+    if err != nil {
+        err = fmt.Errorf("impossible regular expression: %v", err)
+        panic(err)
+    }
+    return ebuf
+}
+
+// Configure EditBuffer.
+func (ebuf *EditBuffer) Configure(setts map[string]interface{}) *EditBuffer {
+    ebuf.newline = setts["newline"].(string)
+    return ebuf
 }
 
 // GetBuffer return buffer and cursor position.
 func (ebuf *EditBuffer) GetBuffer() (dot int64, buffer Buffer) {
-	dot, buffer = ebuf.dot, ebuf.buffer
-	return
+    dot, buffer = ebuf.dot, ebuf.buffer
+    return
 }
 
 // IsReadonly check whether edit-buffer is read-only.
 func (ebuf *EditBuffer) IsReadonly() bool {
-	return ebuf.ronly
+    return ebuf.ronly
 }
 
 // ForceWrite mark edit-buffer as read-write buffer.
 func (ebuf *EditBuffer) ForceWrite() *EditBuffer {
-	ebuf.ronly = false
-	return ebuf
+    ebuf.ronly = false
+    return ebuf
+}
+
+// Move current cursor (dot) by distance, in bytes.
+func (ebuf *EditBuffer) Move(distance int64) *EditBuffer {
+    ebuf.dot += distance
+    if ebuf.dot < 0 {
+        ebuf.dot = 0
+    }
+    l, err := ebuf.buffer.Length()
+    if err != nil {
+        panic("impossible situation")
+    }
+    if ebuf.dot > l {
+        ebuf.dot = l
+    }
+    return ebuf
+}
+
+// Goto position, provided in bytes.
+func (ebuf *EditBuffer) Goto(position int64) *EditBuffer {
+    ebuf.dot = position
+    if ebuf.dot < 0 {
+        ebuf.dot = 0
+    }
+    l, err := ebuf.buffer.Length()
+    if err != nil {
+        panic("impossible situation")
+    }
+    if ebuf.dot > l {
+        ebuf.dot = l
+    }
+    return ebuf
+}
+
+// LineAround return a block of consecutive lines around bCur.
+// width number of lines above the line containing bCur, and,
+// width number of lines below the line containing bcur.
+func (ebuf *EditBuffer) LinesAround(bCur int64, width int64) Lines {
+    block := ebuf.lines.blocksFrom(bCur)()
+    if block == nil  ||  (int64(len(block)) < (width*2 + 2)) {
+        block := ebuf.BuildBlock(bCur, width)
+        ebuf.lines = ebuf.lines.mergeBlock(block)
+        return block
+    }
+    i, ok := block.indexof(bCur)
+    if !ok {
+        panic("impossible situation\n")
+    }
+    start := i - width
+    if start < 0 {
+        start = 0
+    }
+    end := i + width
+    if end >= int64(len(block)) {
+        end = int64(len(block)) - 1
+    }
+    lines := make(Lines, 0, width*2 + 2)
+    for i := start; i <= end; i++ {
+        lines = append(lines, block[i])
+    }
+    return lines
+}
+
+// BuildBlock around specified cursor position,
+// if `bCur` is -1 use current cursor position.
+// Return Lines of specified width*2 + 1.
+func (ebuf *EditBuffer) BuildBlock(bCur int64, width int64) Lines {
+    if bCur < 0 {
+        bCur = ebuf.dot
+    }
+    lnNl := int64(len(ebuf.newline))
+    lines := make(Lines, 0, (width*2+1)*2+2)
+    // gather lines above cursor.
+    iter := Find(ebuf.reNlR, ebuf.buffer.BackStreamFrom(bCur))
+    for i, end := int64(0), int64(-1); i < width+1; i++ {
+        loc := iter()
+        if loc != nil {
+            lines = append(lines, end, int64(loc[0])+lnNl)
+            end = int64(loc[1])
+        } else {
+            lines = append(lines, end, 0)
+            break
+        }
+    }
+    lines.reverse()
+    // gather lines below cursor.
+    iter = Find(ebuf.reNlR, ebuf.buffer.StreamFrom(bCur))
+    for i, start := int64(0), int64(-1); i < width; i++ {
+        loc := iter()
+        if loc != nil {
+            lines = append(lines, start, int64(loc[1]))
+            start = int64(loc[1])
+        } else {
+            l, err := ebuf.buffer.Length()
+            if err != nil {
+                err = fmt.Errorf("impossible situation: %v\n", err)
+                panic(err)
+            }
+            lines = append(lines, start, l)
+            break
+        }
+    }
+    // consolidate.
+    for i, j := 1, 1; (i + 1) < len(lines); i += 2 {
+        if lines[i] != lines[i+1] {
+            panic("impossible situation")
+        } else if lines[i] == -1 && lines[i+1] == -1 {
+            continue
+        }
+        lines[j], lines[j+1] = lines[i], lines[i+1]
+        j += 2
+    }
+    return lines
 }
 
 //---------------------------
@@ -75,155 +211,40 @@ func (ebuf *EditBuffer) ForceWrite() *EditBuffer {
 
 // UpdateChange will overwrite the current buffer reference.
 func (ebuf *EditBuffer) UpdateChange(buffer Buffer) (*EditBuffer, error) {
-	if ebuf.ronly {
-		return ebuf, ErrorReadonlyBuffer
-	}
-	ebuf.buffer = buffer
-	return ebuf, nil
+    if ebuf.ronly {
+        return ebuf, ErrorReadonlyBuffer
+    }
+    ebuf.buffer = buffer
+    return ebuf, nil
 }
 
 // AppendChange will create a new edit buffer with {dot,buffer}
 // and chain it with the current edit buffer as its last child.
 func (ebuf *EditBuffer) AppendChange(
-	dot int64, buffer Buffer) (*EditBuffer, error) {
+    dot int64, buffer Buffer) (*EditBuffer, error) {
 
-	if ebuf.ronly {
-		return ebuf, ErrorReadonlyBuffer
-	}
-	child := NewEditBuffer(dot, buffer, ebuf)
-	ebuf.children = append(ebuf.children, child)
-	return child, nil
+    if ebuf.ronly {
+        return ebuf, ErrorReadonlyBuffer
+    }
+    child := NewEditBuffer(dot, buffer, ebuf)
+    ebuf.children = append(ebuf.children, child)
+    return child, nil
 }
 
 // Undo n changes.
 func (ebuf *EditBuffer) UndoChange(n int64) *EditBuffer {
-	for ebuf.parent != nil && n > 0 {
-		ebuf = ebuf.parent
-		n--
-	}
-	return ebuf
+    for ebuf.parent != nil && n > 0 {
+        ebuf = ebuf.parent
+        n--
+    }
+    return ebuf
 }
 
 // Redo n changes.
 func (ebuf *EditBuffer) RedoChange(n int64) *EditBuffer {
-	for len(ebuf.children) > 0 && n > 0 {
-		ebuf = ebuf.children[len(ebuf.children)-1]
-		n--
-	}
-	return ebuf
-}
-
-//----------------
-// Cursor movement
-//----------------
-
-// Goto move cursor to obsolute position specified by dot.
-// 0 <= dot <= len(buffer)
-func (ebuf *EditBuffer) Goto(dot int64) *EditBuffer {
-	ebuf.dot = dot
-	return ebuf
-}
-
-// Goto0 move cursor position to beginning of the buffer.
-func (ebuf *EditBuffer) Goto0() *EditBuffer {
-	if ebuf.buffer == nil {
-		return ebuf
-	}
-	ebuf.dot = 0
-	return ebuf
-}
-
-// GotoZ move cursor position to end of the buffer.
-func (ebuf *EditBuffer) GotoZ() *EditBuffer {
-	if ebuf.buffer == nil {
-		return ebuf
-	}
-	var err error
-	if ebuf.dot, err = ebuf.buffer.Length(); err != nil {
-		panic(err)
-	}
-	return ebuf
-}
-
-// Goright by n runes, don't go beyond the end-of-line.
-// A negative value means moving the cursor left.
-func (ebuf *EditBuffer) Goright(n int64) *EditBuffer {
-	till, err := ebuf.buffer.Length()
-	if err != nil {
-		panic(err)
-	}
-	loc := ebuf.reNl.FindReaderIndex(ebuf.buffer.StreamFrom(ebuf.dot))
-	if loc != nil {
-		till = int64(loc[0])
-	}
-	ebuf.dot = ebuf.dot + n
-	if ebuf.dot >= till {
-		ebuf.dot = till - 1
-	}
-	return ebuf
-}
-
-// GoEol move cursor to end of line.
-func (ebuf *EditBuffer) GoEol(n int64) *EditBuffer {
-	loc := ebuf.reNl.FindReaderIndex(ebuf.buffer.StreamFrom(ebuf.dot))
-	if loc != nil {
-		ebuf.dot = int64(loc[0]) - 1
-		return ebuf
-	}
-	till, err := ebuf.buffer.Length()
-	if err != nil {
-		panic(err)
-	}
-	ebuf.dot = till - 1
-	return ebuf
-}
-
-// Godown by n lines, don't go beyond buffer end.
-// A negative value means moving the cursor up.
-func (ebuf *EditBuffer) Godown(n int64) *EditBuffer {
-	return ebuf
-}
-
-// GotoColumn move cursor to column specified by n.
-func (ebuf *EditBuffer) GotoColumn(n int64) *EditBuffer {
-	return ebuf
-}
-
-//--------------------
-// Buffer modification
-//--------------------
-
-// RuboutChar before the current-cursor position.
-func (ebuf *EditBuffer) RuboutChar(mode byte) (*EditBuffer, error) {
-	if ebuf.dot <= 0 {
-		return ebuf, nil
-	}
-
-	dot := ebuf.dot
-	if mode == ModeInsert {
-		if buffer, err := ebuf.buffer.DeleteIn(dot-1, 1); err != nil {
-			return ebuf, err
-		} else if ebuf, err := ebuf.UpdateChange(buffer); err != nil {
-			return ebuf, err
-		}
-		ebuf.dot -= 1
-	}
-	if buffer, err := ebuf.buffer.Delete(dot-1, 1); err != nil {
-		return ebuf, err
-	} else if ebuf, err := ebuf.AppendChange(dot-1, buffer); err != nil {
-		return ebuf, err
-	}
-	return ebuf, nil
-}
-
-// RuboutWord at current-cursor, if cursor is pointing to
-// white-space rubout previous word.
-func (ebuf *EditBuffer) RuboutWord() (*EditBuffer, error) {
-	return ebuf, nil
-}
-
-// RuboutLine at current-cursor including the lines
-// end (aka newline char).
-func (ebuf *EditBuffer) RuboutLine() (*EditBuffer, error) {
-	return ebuf, nil
+    for len(ebuf.children) > 0 && n > 0 {
+        ebuf = ebuf.children[len(ebuf.children)-1]
+        n--
+    }
+    return ebuf
 }
