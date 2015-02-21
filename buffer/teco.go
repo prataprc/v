@@ -1,24 +1,18 @@
 package buffer
 
-// h means {0,z} select everyting.
-
-type Cmd struct {
+type Command struct {
+	name string
+	ebuf *EditBuffer
 	args []interface{}
-	c    string
-	zrgs []interface{}
 }
 
-// Commands
-const (
-	// insert mode.
-	RuboutChar string = "k"
-	RuboutWord        = "ctrl-w"
-	RuboutLine        = "ctrl-u"
-	// normal mode.
-	DotForward    = "l" // {args{Int}, "l"}
-	DotForwardTok = "w" // {args{Int}, "w"}
-	DotLineUp     = "k" // {args{Int}, "k"}
-	DotGoto       = "j" // {args{Int}, "j"}
-	// ex-command.
-	Ex = "exit"
-)
+var TecoNormals = map[string]func(Command){
+//"h"    : h,
+//"<-"   : h,
+//"<bs>" : bs,
+}
+
+// horizontal movement, returns new cursor position.
+func h(iter LineIterator, dot, distance int64) int64 {
+	return 0
+}

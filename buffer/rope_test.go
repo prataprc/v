@@ -24,7 +24,10 @@ func TestRopeSample256(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats := rb.Stats()
+	stats, err := rb.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
 	length := validateRopeBuild(t, stats)
 	if l := int64(len(sampleData)); length != l {
 		t.Fatalf("mismatch in length %v, got %v", length, l)
@@ -38,7 +41,10 @@ func TestRopeSample1MB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stats := rb.Stats()
+	stats, err := rb.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
 	length := validateRopeBuild(t, stats)
 	if l := int64(len(sampleData)); length != l {
 		t.Fatalf("mismatch in length %v, got %v", length, l)
@@ -93,7 +99,7 @@ func TestRopeInsert(t *testing.T) {
 			t.Fatal(err)
 		}
 		runes := []rune(string(rb.Value()))
-		if err := validateRead(rb, runes); err != nil {
+		if err := validateRead(rb.(*RopeBuffer), runes); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -104,14 +110,16 @@ func TestRopeDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var buf Buffer
 	for rb.Len > 0 {
 		offs := runePositions(rb.Value())
 		i := rand.Intn(len(offs))
 		n := rand.Intn(len(offs) - i + 1)
 		dot := offs[i]
-		if rb, err = rb.Delete(dot, int64(n)); err != nil {
+		if buf, err = rb.Delete(dot, int64(n)); err != nil {
 			t.Fatal(err)
 		}
+		rb = buf.(*RopeBuffer)
 	}
 }
 
@@ -124,10 +132,11 @@ func TestRopePersistence(t *testing.T) {
 	lb := NewLinearBuffer(rb.Value())
 	history := map[*RopeBuffer]bool{rb: true}
 	for _, off := range offs {
-		rb, err = rb.Insert(off, []rune("abc"))
+		buf, err := rb.Insert(off, []rune("abc"))
 		if err != nil {
 			t.Fatal(err)
 		}
+		rb = buf.(*RopeBuffer)
 		lb, _ = lb.Insert(off, []rune("abc"))
 		if _, ok := history[rb]; ok {
 			t.Fatal("persistence ref failed %v", rb.Value())
@@ -222,7 +231,7 @@ func TestRopeStreamFrom(t *testing.T) {
 	}
 }
 
-func TestRopeStreamTill(t *testing.T) {
+func TestRopeStreamCount(t *testing.T) {
 	bytes := []byte(testChinese)
 	rb, err := NewRopebuffer(bytes, 8)
 	if err != nil {
@@ -236,7 +245,7 @@ func TestRopeStreamTill(t *testing.T) {
 	for i, off := range offs {
 		runes := make([]rune, 0)
 		n := rand.Intn(len(offs) - i)
-		for reader := rb.StreamTill(off, int64(n)); true; {
+		for reader := rb.StreamCount(off, int64(n)); true; {
 			r, _, err := reader.ReadRune()
 			if err == io.EOF {
 				break
@@ -285,7 +294,7 @@ func TestRopeBackStreamFrom(t *testing.T) {
 	}
 }
 
-func TestRopeBackStreamTill(t *testing.T) {
+func TestRopeBackStreamCount(t *testing.T) {
 	bytes := []byte(testChinese)
 	rb, err := NewRopebuffer(bytes, 8)
 	if err != nil {
@@ -299,7 +308,7 @@ func TestRopeBackStreamTill(t *testing.T) {
 	for i, off := range offs {
 		runes := make([]rune, 0)
 		n := rand.Intn(i + 1)
-		for reader := rb.BackStreamTill(off, int64(n)); true; {
+		for reader := rb.BackStreamCount(off, int64(n)); true; {
 			r, _, err := reader.ReadRune()
 			if err == io.EOF {
 				break
@@ -581,12 +590,12 @@ func BenchmarkRopeStrmFrm(b *testing.B) {
 	b.SetBytes(int64(len(testChinese)))
 }
 
-func BenchmarkRopeStrmTill(b *testing.B) {
+func BenchmarkRopeStrmCnt(b *testing.B) {
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
 	offs := runePositions([]byte(testChinese))
 	for i := 0; i < b.N; i++ {
 		var err error
-		reader := rb.StreamTill(0, int64(len(offs)))
+		reader := rb.StreamCount(0, int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -608,12 +617,12 @@ func BenchmarkRopeBStrmFrm(b *testing.B) {
 	b.SetBytes(int64(len(testChinese)))
 }
 
-func BenchmarkRopeBStrmTil(b *testing.B) {
+func BenchmarkRopeBStrmCnt(b *testing.B) {
 	rb, _ := NewRopebuffer([]byte(testChinese), 8)
 	offs := runePositions([]byte(testChinese))
 	for i := 0; i < b.N; i++ {
 		var err error
-		reader := rb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
+		reader := rb.BackStreamCount(offs[len(offs)-1], int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -781,7 +790,7 @@ func validateDicing(rbRef *RopeBuffer) error {
 			x, y := string(rbLeft.Value()), string(rbRight.Value())
 			fmt.Errorf("failed concating %q and %q: %v", x, y, err)
 		}
-		if err := validateRead(rb, nil); err != nil {
+		if err := validateRead(rb.(*RopeBuffer), nil); err != nil {
 			fmt.Errorf("validateRead() %q at %d: %v", string(x), dot, err)
 		}
 	}

@@ -83,12 +83,13 @@ func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 		return nil, 0, ErrorIndexOutofbound
 	}
 
-	var reader io.RuneReader
+	var reader RuneReader
 	if rn > 0 {
-		reader = lb.StreamTill(bCur, rn)
+		reader = lb.StreamCount(bCur, rn)
 	} else {
-		reader = lb.BackStreamTill(bCur, rn)
+		reader = lb.BackStreamCount(bCur, rn)
 	}
+	defer reader.Close()
 
 	var err error
 	var r rune
@@ -234,34 +235,46 @@ func (lb *LinearBuffer) DeleteIn(bCur, rn int64) (*LinearBuffer, error) {
 }
 
 // StreamFrom implement Buffer interface{}.
-func (lb *LinearBuffer) StreamFrom(bCur int64) io.RuneReader {
-	return iterator(func() (r rune, size int, err error) {
-		if bCur >= int64(len(lb.Text)) {
+func (lb *LinearBuffer) StreamFrom(bCur int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if bCur >= int64(len(lb.Text)) || finish {
 			return r, size, io.EOF
 		}
 		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		bCur += int64(size)
+		return r, size, nil
+	})
+}
+
+// StreamCount implement Buffer interface{}.
+func (lb *LinearBuffer) StreamCount(bCur, count int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if bCur > int64(len(lb.Text)) || (count <= 0) || finish {
+			return r, size, io.EOF
+		}
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
+		bCur += int64(size)
+		count--
 		return r, size, nil
 	})
 }
 
 // StreamTill implement Buffer interface{}.
-func (lb *LinearBuffer) StreamTill(bCur, count int64) io.RuneReader {
-	return iterator(func() (r rune, size int, err error) {
-		if bCur > int64(len(lb.Text)) || count <= 0 {
+func (lb *LinearBuffer) StreamTill(bCur, till int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if bCur > int64(len(lb.Text)) || (bCur >= till) || finish {
 			return r, size, io.EOF
 		}
 		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		bCur += int64(size)
-		count--
 		return r, size, nil
 	})
 }
 
 // BackStreamFrom implement Buffer interface{}.
-func (lb *LinearBuffer) BackStreamFrom(bCur int64) io.RuneReader {
-	return iterator(func() (r rune, size int, err error) {
-		if bCur == 0 {
+func (lb *LinearBuffer) BackStreamFrom(bCur int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (bCur == 0) || finish {
 			return r, size, io.EOF
 		}
 		from := bCur - MaxRuneWidth
@@ -278,10 +291,10 @@ func (lb *LinearBuffer) BackStreamFrom(bCur int64) io.RuneReader {
 	})
 }
 
-// BackStreamTill implement Buffer interface{}.
-func (lb *LinearBuffer) BackStreamTill(bCur, count int64) io.RuneReader {
-	return iterator(func() (r rune, size int, err error) {
-		if count <= 0 || bCur <= 0 {
+// BackStreamCount implement Buffer interface{}.
+func (lb *LinearBuffer) BackStreamCount(bCur, count int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (count <= 0) || (bCur <= 0) || finish {
 			return r, size, io.EOF
 		}
 		from := bCur - MaxRuneWidth
@@ -295,6 +308,26 @@ func (lb *LinearBuffer) BackStreamTill(bCur, count int64) io.RuneReader {
 		bCur = from + n
 		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		count--
+		return r, size, nil
+	})
+}
+
+// BackStreamTill implement Buffer interface{}.
+func (lb *LinearBuffer) BackStreamTill(bCur, till int64) RuneReader {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (0 <= bCur) || (bCur >= till) || finish {
+			return r, size, io.EOF
+		}
+		from := bCur - MaxRuneWidth
+		if from < 0 {
+			from = 0
+		}
+		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
+		if err != nil {
+			return r, size, err
+		}
+		bCur = from + n
+		r, size = utf8.DecodeRune(lb.Text[bCur:])
 		return r, size, nil
 	})
 }

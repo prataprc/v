@@ -1,7 +1,6 @@
 package buffer
 
 import "fmt"
-import "io"
 import "regexp"
 
 var _ = fmt.Sprintf("dummy")
@@ -39,7 +38,7 @@ type Buffer interface {
 	RuneAt(bCur int64) (ch rune, size int, err error)
 
 	// Runes return full content in buffer as rune-array.
-	Runes() ([]byte, error)
+	Runes() ([]rune, error)
 
 	// RuneSlice return a substring of length `rn` runes after
 	// bCur number of bytes from start. It also returns the
@@ -48,7 +47,7 @@ type Buffer interface {
 
 	// Concat adds another buffer element adjacent to the
 	// current buffer.
-	Concat(other *Buffer) (buf Buffer, err error)
+	Concat(other Buffer) (buf Buffer, err error)
 
 	// Split this buffer at bCur, and return two equivalent buffer
 	// elements, a bCur of value Bn would mean Bn bytes to the
@@ -77,36 +76,58 @@ type Buffer interface {
 	DeleteIn(bCur int64, rn int64) (buf Buffer, err error)
 
 	// StreamFrom returns a RuneReader starting from `bCur`.
-	StreamFrom(bCur int64) io.RuneReader
+	StreamFrom(bCur int64) RuneReader
 
-	// StreamTill returns a RuneReader starting from `bCur` for
-	// `count` number of runes.
-	StreamTill(bCur, count int64) io.RuneReader
+	// StreamCount returns a RuneReader starting from `bCur`
+	// for `count` number of runes.
+	StreamCount(bCur, count int64) RuneReader
+
+	// StreamTill returns a RuneReader starting from `bCur`
+	// until `till` number of bytes decoded.
+	StreamTill(bCur, till int64) RuneReader
 
 	// BackStreamFrom returns a RuneReader starting from `bCur`,
 	// streaming in the backward direction.
-	BackStreamFrom(bCur int64) io.RuneReader
+	BackStreamFrom(bCur int64) RuneReader
 
-	// BackStreamTill returns a RuneReader starting from `bCur` for
-	// `count` number of runes, in the backward direction.
-	BackStreamTill(bCur, count int64) io.RuneReader
+	// BackStreamCount returns a RuneReader starting from `bCur`,
+	// in backward direction, for `count` number of runes.
+	BackStreamCount(bCur, count int64) RuneReader
+
+	// BackStreamTill returns a RuneReader starting from `bCur`,
+	// in backward direction, until `till` number of bytes decoded.
+	BackStreamTill(bCur, till int64) RuneReader
 
 	// Stats return a key,value pair of interesting statistiscs.
 	Stats() (stats Statistics, err error)
 }
 
-// iterator implements io.RuneReader interface{}.
-type iterator func() (r rune, size int, err error)
+type RuneReader interface {
+	// ReadRune will read one rune at a time from buffer,
+	// until io.EOF is reached.
+	ReadRune() (r rune, size int, err error)
 
-// ReadRune implements io.RuneReader interface{}.
-func (fn iterator) ReadRune() (rune, int, error) {
-	return fn()
+	// Close() the reader.
+	Close()
 }
 
-// Find `regex` pattern within buffer streamed by io.RuneReader
+// iterator implements RuneReader interface{}.
+type iterator func(finish bool) (r rune, size int, err error)
+
+// ReadRune implements RuneReader interface{}.
+func (fn iterator) ReadRune() (rune, int, error) {
+	return fn(false)
+}
+
+// ReadRune implements RuneReader interface{}.
+func (fn iterator) Close() {
+	fn(true)
+}
+
+// Find `regex` pattern within buffer streamed by RuneReader
 // streaming can be in any direction and regex is expected to be
 // specified accordingly.
-func Find(regex interface{}, r io.RuneReader) Finder {
+func Find(regex interface{}, r RuneReader) Finder {
 	var re *regexp.Regexp
 	var err error
 

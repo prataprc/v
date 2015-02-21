@@ -128,12 +128,13 @@ func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 		return nil, 0, ErrorIndexOutofbound
 	}
 
-	var reader io.RuneReader
+	var reader RuneReader
 	if rn > 0 {
-		reader = rb.StreamTill(bCur, rn)
+		reader = rb.StreamCount(bCur, rn)
 	} else {
-		reader = rb.BackStreamTill(bCur, rn)
+		reader = rb.BackStreamCount(bCur, rn)
 	}
+	defer reader.Close()
 
 	var err error
 	var r rune
@@ -153,17 +154,18 @@ func (rb *RopeBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
 }
 
 // Concat implement Buffer{} interface.
-func (rb *RopeBuffer) Concat(right *RopeBuffer) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Concat(right Buffer) (Buffer, error) {
+	rightbuf := right.(*RopeBuffer)
 	if rb == nil {
-		return right, nil
-	} else if right == nil {
+		return rightbuf, nil
+	} else if rightbuf == nil {
 		return rb, nil
 	}
-	return NewRopeLevel(rb.Len+right.Len, rb, right), nil
+	return NewRopeLevel(rb.Len+rightbuf.Len, rb, rightbuf), nil
 }
 
 // Split implement Buffer{} interface.
-func (rb *RopeBuffer) Split(bCur int64) (left, right *RopeBuffer, err error) {
+func (rb *RopeBuffer) Split(bCur int64) (left, right Buffer, err error) {
 	if rb == nil {
 		return nil, nil, ErrorBufferNil
 
@@ -174,7 +176,7 @@ func (rb *RopeBuffer) Split(bCur int64) (left, right *RopeBuffer, err error) {
 }
 
 // Insert implement Buffer{} interface.
-func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Insert(bCur int64, text []rune) (Buffer, error) {
 	if text == nil {
 		return rb, nil
 
@@ -205,7 +207,7 @@ func (rb *RopeBuffer) Insert(bCur int64, text []rune) (*RopeBuffer, error) {
 }
 
 // Delete implement Buffer{} interface.
-func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
+func (rb *RopeBuffer) Delete(bCur, rn int64) (Buffer, error) {
 	if rb == nil {
 		return rb, ErrorBufferNil
 	} else if rn == 0 {
@@ -237,7 +239,7 @@ func (rb *RopeBuffer) Delete(bCur, rn int64) (*RopeBuffer, error) {
 }
 
 // InsertIn implement Buffer{} interface.
-func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
+func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (Buffer, error) {
 	textb := []byte(string(text)) // TODO: this could be inefficient
 	if text == nil || len(textb) == 0 {
 		return rb, nil
@@ -263,7 +265,7 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 		if err != nil {
 			return rb, err
 		}
-		rb.Right = right
+		rb.Right = right.(*RopeBuffer)
 		rb.Len = rb.Left.Len + rb.Right.Len
 		return rb, nil
 	}
@@ -271,13 +273,13 @@ func (rb *RopeBuffer) InsertIn(bCur int64, text []rune) (*RopeBuffer, error) {
 	if err != nil {
 		return rb, err
 	}
-	rb.Left = left
+	rb.Left = left.(*RopeBuffer)
 	rb.Weight, rb.Len = rb.Left.Len, rb.Left.Len+rb.Right.Len
 	return rb, nil
 }
 
 // DeleteIn implement Buffer{} interface.
-func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (*RopeBuffer, error) {
+func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (Buffer, error) {
 	if rb == nil {
 		return rb, ErrorBufferNil
 	} else if rn == 0 {
@@ -295,33 +297,61 @@ func (rb *RopeBuffer) DeleteIn(bCur, rn int64) (*RopeBuffer, error) {
 }
 
 // StreamFrom implement Buffer interface{}.
-func (rb *RopeBuffer) StreamFrom(bCur int64) io.RuneReader {
-	return rb.runeIterator(bCur, -1)
+func (rb *RopeBuffer) StreamFrom(bCur int64) RuneReader {
+	// clear up the corner cases.
+	if bCur < 0 || rb.Len == 0 {
+		return iterator(runeEnd)
+	}
+	return rb.runeIterator(bCur)
+}
+
+// StreamCount implement Buffer interface{}.
+func (rb *RopeBuffer) StreamCount(bCur, count int64) RuneReader {
+	// clear up the corner cases.
+	if bCur < 0 || (rb.Len == 0) || (count <= 0) {
+		return iterator(runeEnd)
+	}
+	return rb.runeIteratorCount(bCur, count)
 }
 
 // StreamTill implement Buffer interface{}.
-func (rb *RopeBuffer) StreamTill(bCur, count int64) io.RuneReader {
-	return rb.runeIterator(bCur, count)
+func (rb *RopeBuffer) StreamTill(bCur, till int64) RuneReader {
+	// clear up the corner cases.
+	if bCur < 0 || (rb.Len == 0) || (till >= bCur) {
+		return iterator(runeEnd)
+	}
+	return rb.runeIteratorTill(bCur, till)
 }
 
 // BackStreamFrom implement Buffer interface{}.
-func (rb *RopeBuffer) BackStreamFrom(bCur int64) io.RuneReader {
-	return rb.runeReverseIterator(bCur, -1)
+func (rb *RopeBuffer) BackStreamFrom(bCur int64) RuneReader {
+	if bCur < 0 || rb.Len == 0 {
+		return iterator(runeEnd)
+	}
+	return rb.runeRIterator(bCur)
+}
+
+// BackStreamCount implement Buffer interface{}.
+func (rb *RopeBuffer) BackStreamCount(bCur, count int64) RuneReader {
+	if bCur < 0 || (rb.Len == 0) || (count <= 0) {
+		return iterator(runeEnd)
+	}
+	return rb.runeRIteratorCount(bCur, count)
 }
 
 // BackStreamTill implement Buffer interface{}.
-func (rb *RopeBuffer) BackStreamTill(bCur, count int64) io.RuneReader {
-	if count < 0 {
-		count = 0
+func (rb *RopeBuffer) BackStreamTill(bCur, till int64) RuneReader {
+	if bCur < 0 || (rb.Len == 0) || (till >= bCur) {
+		return iterator(runeEnd)
 	}
-	return rb.runeReverseIterator(bCur, count)
+	return rb.runeRIteratorTill(bCur, till)
 }
 
 // Stats implement Buffer{} interface.
-func (rb *RopeBuffer) Stats() rbStats {
+func (rb *RopeBuffer) Stats() (Statistics, error) {
 	s := newRBStatistics()
 	rb.stats(1, s)
-	return s
+	return Statistics(s), nil
 }
 
 // JohnnieWalker gets called for every leaf node in the
@@ -415,7 +445,7 @@ func (rb *RopeBuffer) copyrefs(newrb *RopeBuffer) {
 }
 
 func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
-	var left, right, x, y *RopeBuffer
+	var x, y *RopeBuffer
 
 	if rb.isLeaf() && rb.Len > 0 && rb.Len > capacity {
 		splitAt := rb.Len / 2
@@ -424,16 +454,19 @@ func (rb *RopeBuffer) build(capacity int64) (*RopeBuffer, error) {
 			return nil, err
 		}
 		splitAt = splitAt + n
-		if left, right, err = rb.Split(splitAt); err != nil {
+		l, r, err := rb.Split(splitAt)
+		if err != nil {
 			return nil, err
 		}
+		left, right := l.(*RopeBuffer), r.(*RopeBuffer)
 		if x, err = left.build(capacity); err != nil {
 			return nil, err
 		}
 		if y, err = right.build(capacity); err != nil {
 			return nil, err
 		}
-		return x.Concat(y)
+		buf, err := x.Concat(y)
+		return buf.(*RopeBuffer), err
 	}
 	return rb, nil
 }
@@ -457,7 +490,7 @@ func (rb *RopeBuffer) split(
 		if err != nil {
 			return nil, nil, err
 		}
-		return left, right, nil
+		return left.(*RopeBuffer), right, nil
 
 	}
 	// recurse on the left
@@ -483,11 +516,11 @@ func (rb *RopeBuffer) split(
 	if err != nil {
 		return nil, nil, err
 	}
-	right, err = right.Concat(rb.Right)
+	rbuf, err := right.Concat(rb.Right)
 	if err != nil {
 		return nil, nil, err
 	}
-	return newLeft, right, nil
+	return newLeft, rbuf.(*RopeBuffer), nil
 }
 
 func (rb *RopeBuffer) value(bCur int64, n int64, acc []byte) {
@@ -601,52 +634,90 @@ func (rb *RopeBuffer) stats(depth int64, s rbStats) {
 	}
 }
 
-// iterate on runes in buffer starting from `bCur`.
-func (rb *RopeBuffer) runeIterator(bCur, count int64) iterator {
-	// clear up the corner cases.
-	if bCur < 0 || rb.Len == 0 || count == 0 {
-		return func() (r rune, size int, err error) {
-			return r, size, io.EOF
-		}
-	}
+func walkRoutine(
+	rb *RopeBuffer, bCur int64, ch chan []interface{}, killch chan bool) {
 
-	ch := make(chan []interface{})
-	donech := make(chan bool)
-	go func() {
-		rb.Walk(bCur, func(bCur int64, leaf *RopeBuffer) bool {
-			select {
-			case ch <- []interface{}{bCur, leaf}:
-				return true
-			case <-donech:
-				return false
-			}
+	rb.Walk(bCur, func(bCur int64, leaf *RopeBuffer) bool {
+		select {
+		case ch <- []interface{}{bCur, leaf}:
 			return true
-		})
-		close(ch)
-	}()
+		case <-killch:
+			return false
+		}
+	})
+	close(ch)
+}
 
-	nextLeaf := func() (int64, *RopeBuffer) {
-		iterVal, ok := <-ch
-		if ok {
+func walkBackRoutine(
+	rb *RopeBuffer, bCur int64, ch chan []interface{}, killch chan bool) {
+
+	rb.WalkBack(bCur, func(bCur int64, leaf *RopeBuffer) bool {
+		select {
+		case ch <- []interface{}{bCur, leaf}:
+			return true
+		case <-killch:
+			return false
+		}
+	})
+	close(ch)
+}
+
+func walkLeaf(ch chan []interface{}) func() (int64, *RopeBuffer) {
+	return func() (int64, *RopeBuffer) {
+		if iterVal, ok := <-ch; ok {
 			off, leaf := iterVal[0].(int64), iterVal[1].(*RopeBuffer)
 			return off, leaf
 		}
 		return 0, nil
 	}
+}
 
+func runeEnd(finish bool) (r rune, size int, err error) {
+	return r, size, io.EOF
+}
+
+// iterate on runes in buffer starting from `bCur`.
+func (rb *RopeBuffer) runeIterator(bCur int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkRoutine(rb, bCur, ch, killch)
+	nextLeaf := walkLeaf(ch)
 	off, leaf := nextLeaf()
-	return func() (r rune, size int, err error) {
-		if leaf == nil || count == 0 {
-			close(donech)
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (leaf == nil) || finish {
+			defer func() { recover() }()
+			close(killch)
 			return r, size, io.EOF
 
 		} else if off < leaf.Len {
 			r, size = utf8.DecodeRune(leaf.Text[off:])
 			off += int64(size)
-			bCur += int64(size)
-			if count == 0 {
-				leaf = nil
-			} else if off == leaf.Len {
+			if off == leaf.Len {
+				off, leaf = nextLeaf()
+			} else if off > leaf.Len {
+				panic("impossible situation")
+			}
+			return r, size, nil
+		}
+		panic("impossible situation")
+	})
+}
+
+// iterate on count runes in buffer starting from `bCur`.
+func (rb *RopeBuffer) runeIteratorCount(bCur, count int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkRoutine(rb, bCur, ch, killch)
+	nextLeaf := walkLeaf(ch)
+	off, leaf := nextLeaf()
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (leaf == nil) || (count <= 0) || finish {
+			defer func() { recover() }()
+			close(killch)
+			return r, size, io.EOF
+
+		} else if off < leaf.Len {
+			r, size = utf8.DecodeRune(leaf.Text[off:])
+			off += int64(size)
+			if off == leaf.Len {
 				off, leaf = nextLeaf()
 			} else if off > leaf.Len {
 				panic("impossible situation")
@@ -655,70 +726,110 @@ func (rb *RopeBuffer) runeIterator(bCur, count int64) iterator {
 			return r, size, nil
 		}
 		panic("impossible situation")
-	}
+	})
 }
 
-// iterate on runes in buffer starting from `bCur`, in reverse direction.
-func (rb *RopeBuffer) runeReverseIterator(bCur, count int64) iterator {
-	// clear up the corner cases.
-	if bCur < 0 || rb.Len == 0 || count == 0 {
-		return func() (r rune, size int, err error) {
+// iterate `till` offset in buffer starting from `bCur`.
+func (rb *RopeBuffer) runeIteratorTill(bCur, till int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkRoutine(rb, bCur, ch, killch)
+	nextLeaf := walkLeaf(ch)
+	off, leaf := nextLeaf()
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (leaf == nil) || (bCur >= till) || finish {
+			defer func() { recover() }()
+			close(killch)
 			return r, size, io.EOF
-		}
-	}
 
-	ch := make(chan []interface{})
-	donech := make(chan bool)
-	go func() {
-		rb.WalkBack(bCur, func(bCur int64, leaf *RopeBuffer) bool {
-			select {
-			case ch <- []interface{}{bCur, leaf}:
-				return true
-			case <-donech:
-				return false
+		} else if off < leaf.Len {
+			r, size = utf8.DecodeRune(leaf.Text[off:])
+			off += int64(size)
+			till += int64(size)
+			if off == leaf.Len {
+				off, leaf = nextLeaf()
+			} else if off > leaf.Len {
+				panic("impossible situation")
 			}
-			return true
-		})
-		close(ch)
-	}()
-
-	prevLeaf := func() (int64, *RopeBuffer) {
-		iterVal, ok := <-ch
-		if ok {
-			off, leaf := iterVal[0].(int64), iterVal[1].(*RopeBuffer)
-			return off, leaf
+			return r, size, nil
 		}
-		return 0, nil
-	}
+		panic("impossible situation")
+	})
+}
 
+// iterate on runes in buffer starting from `bCur`,
+// in reverse direction.
+func (rb *RopeBuffer) runeRIterator(bCur int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkBackRoutine(rb, bCur, ch, killch)
+	prevLeaf := walkLeaf(ch)
 	off, leaf := prevLeaf()
-	return func() (r rune, size int, err error) {
-		if leaf == nil || count == 0 {
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if leaf == nil || finish {
+			defer func() { recover() }()
+			close(killch)
 			return r, size, io.EOF
 		}
 		r, size = utf8.DecodeRune(leaf.Text[off:])
-		if off == 0 {
+		if off <= 0 {
 			off, leaf = prevLeaf()
-			if leaf != nil {
-				bCur -= leaf.Len - off
-			}
-			count--
 			return r, size, nil
-		}
-		n, err := getRuneStart(leaf.Text[:off], true /*reverse*/)
-		if err == nil {
-			bCur -= (off - n)
-			off = n
-			if count == 0 {
-				leaf = nil
-			} else if off < 0 {
-				panic("impossible situation")
-			}
-			count--
+
+		} else if off, err = getRuneStart(leaf.Text[:off], true); err == nil {
 			return r, size, nil
 		}
 		return r, size, err
-	}
+	})
+}
+
+// iterate on count runes in buffer starting from `bCur`,
+// in reverse direction.
+func (rb *RopeBuffer) runeRIteratorCount(bCur, count int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkBackRoutine(rb, bCur, ch, killch)
+	prevLeaf := walkLeaf(ch)
+	off, leaf := prevLeaf()
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (leaf == nil) || (count == 0) || finish {
+			defer func() { recover() }()
+			close(killch)
+			return r, size, io.EOF
+		}
+		r, size = utf8.DecodeRune(leaf.Text[off:])
+		count--
+		if off <= 0 {
+			off, leaf = prevLeaf()
+			return r, size, nil
+
+		} else if off, err = getRuneStart(leaf.Text[:off], true); err == nil {
+			return r, size, nil
+		}
+		return r, size, err
+	})
+}
+
+// iterate `till` offset in buffer starting from `bCur`,
+// in reverse direction.
+func (rb *RopeBuffer) runeRIteratorTill(bCur, till int64) iterator {
+	ch, killch := make(chan []interface{}), make(chan bool)
+	go walkBackRoutine(rb, bCur, ch, killch)
+	prevLeaf := walkLeaf(ch)
+	off, leaf := prevLeaf()
+	return iterator(func(finish bool) (r rune, size int, err error) {
+		if (leaf == nil) || (bCur == 0) || (bCur < till) || finish {
+			defer func() { recover() }()
+			close(killch)
+			return r, size, io.EOF
+		}
+		r, size = utf8.DecodeRune(leaf.Text[off:])
+		bCur -= int64(size)
+		if off <= 0 {
+			off, leaf = prevLeaf()
+			return r, size, nil
+		} else if off, err = getRuneStart(leaf.Text[:off], true); err == nil {
+			return r, size, nil
+		}
+		return r, size, err
+	})
 }
 
 func (rb *RopeBuffer) printTree(prefix string) {

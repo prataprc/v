@@ -30,13 +30,13 @@ func TestLinearStreamFrom(t *testing.T) {
 	}
 }
 
-func TestLinearStreamTil(t *testing.T) {
+func TestLinearStreamCount(t *testing.T) {
 	var err error
 	var r rune
 	var size int
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.StreamTill(0, 10)
+	reader := lb.StreamCount(0, 10)
 	totalrn, totalsize, runes := 0, 0, make([]rune, 10)
 	for err != io.EOF {
 		r, size, err = reader.ReadRune()
@@ -80,13 +80,13 @@ func TestLinearBackStreamFrom(t *testing.T) {
 	}
 }
 
-func TestLinearBackStreamTill(t *testing.T) {
+func TestLinearBackStreamCount(t *testing.T) {
 	var err error
 	var r rune
 	var size int
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
-	reader := lb.BackStreamTill(offs[10], 9)
+	reader := lb.BackStreamCount(offs[10], 9)
 	totalrn, totalsize, runes := 0, 0, make([]rune, 9)
 	for err != io.EOF {
 		r, size, err = reader.ReadRune()
@@ -343,13 +343,13 @@ func BenchmarkLinearStrmFrm(b *testing.B) {
 	b.SetBytes(int64(len(testChinese)))
 }
 
-func BenchmarkLinearStrmTill(b *testing.B) {
+func BenchmarkLinearStrmCnt(b *testing.B) {
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var err error
-		reader := lb.StreamTill(0, int64(len(offs)))
+		reader := lb.StreamCount(0, int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}
@@ -371,12 +371,12 @@ func BenchmarkLinearBStrmFrm(b *testing.B) {
 	b.SetBytes(int64(len(testChinese)))
 }
 
-func BenchmarkLinearBStrmTil(b *testing.B) {
+func BenchmarkLinearBStrmCnt(b *testing.B) {
 	lb := NewLinearBuffer([]byte(testChinese))
 	offs := runePositions([]byte(testChinese))
 	for i := 0; i < b.N; i++ {
 		var err error
-		reader := lb.BackStreamTill(offs[len(offs)-1], int64(len(offs)))
+		reader := lb.BackStreamCount(offs[len(offs)-1], int64(len(offs)))
 		for err != io.EOF {
 			_, _, err = reader.ReadRune()
 		}

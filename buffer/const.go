@@ -40,4 +40,4 @@ const (
 	ModeVisual byte = iota
 )
 
-const Newline = `\n`
+const Newline = `\\n`
