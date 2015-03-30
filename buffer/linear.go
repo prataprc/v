@@ -6,333 +6,234 @@ import "unicode/utf8"
 
 var _ = fmt.Sprintf("dummy")
 
-type LinearRuneReader struct {
-	lb *LinearBuffer
-}
-
-// LinearBuffer represents mutable sequence of runes as buffer.
+// LinearBuffer implements a immutable array of bytes as
+// Buffer.
 type LinearBuffer struct {
-	Text []byte
+    Text []rune
 }
 
-// NewLinearBuffer returns a new buffer, initialized with text.
-func NewLinearBuffer(text []byte) *LinearBuffer {
-	newt := make([]byte, len(text))
-	copy(newt, text)
-	return &LinearBuffer{Text: newt}
+// NewLinearBuffer returns a new buffer,
+// initialized with text, by copying it to locally.
+func NewLinearBuffer(bs []byte) Buffer {
+    return &LinearBuffer{Text: bytes2Runes(bs)}
 }
+
+//----------
+// rune APIs
+//----------
 
 // Length implement Buffer{} interface.
-func (lb *LinearBuffer) Length() (n int64, err error) {
-	if lb == nil {
-		return n, ErrorBufferNil
-	}
-	return int64(len(lb.Text)), nil
+func (lb *LinearBuffer) Length() int64 {
+    return int64(len(lb.Text))
 }
 
-// Value implement Buffer{} interface.
-func (lb *LinearBuffer) Value() []byte {
-	if lb == nil {
-		return nil
-	}
-	return lb.Text
-}
-
-func (lb *LinearBuffer) Slice(bCur, bn int64) ([]byte, error) {
-	if lb == nil {
-		return nil, ErrorBufferNil
-	} else if l := int64(len(lb.Text)); bCur < 0 || bCur > l {
-		return nil, ErrorIndexOutofbound
-	} else if end := bCur + bn; end < 0 || end > int64(len(lb.Text)) {
-		return nil, ErrorIndexOutofbound
-	}
-	return lb.Text[bCur : bCur+bn], nil
-}
-
-// RuneAt implement Buffer{} interface.
-func (lb *LinearBuffer) RuneAt(bCur int64) (ch rune, size int, err error) {
-	if lb == nil {
-		return ch, size, ErrorBufferNil
-	} else if l := int64(len(lb.Text)); bCur < 0 || bCur >= l {
-		return ch, size, ErrorIndexOutofbound
-	}
-	ch, size = utf8.DecodeRune(lb.Text[bCur:])
-	if ch == utf8.RuneError {
-		return ch, 0, ErrorInvalidEncoding
-	}
-	return ch, size, nil
+// Slice implement Buffer{} interface.
+func (lb *LinearBuffer) Slice(rCur, rn int64) Buffer {
+    endCur := rCur + rn
+    if !lb.isValidCursor(rCur) {
+        return nil
+    } else if ok := lb.isValidCursor(endCur); !ok  &&  endCur < rCur {
+        return nil
+    } else if !ok {
+        endCur = lb.Length()
+    }
+    rs := make([]rune, rn)
+    copy(rs, lb.Text[rCur:endCur])
+    return &LinearBuffer{Text: rs}
 }
 
 // Runes implement Buffer{} interface.
-func (lb *LinearBuffer) Runes() ([]rune, error) {
-	if lb == nil {
-		return nil, ErrorBufferNil
-	}
-	return bytes2Runes(lb.Text)
-}
-
-// RuneSlice implement Buffer{} interface.
-func (lb *LinearBuffer) RuneSlice(bCur, rn int64) ([]rune, int64, error) {
-	if lb == nil {
-		return nil, 0, ErrorBufferNil
-	} else if rn == 0 {
-		return []rune{}, 0, nil
-	} else if l := int64(len(lb.Text)); bCur < 0 || bCur >= l {
-		return nil, 0, ErrorIndexOutofbound
-	} else if l == 0 {
-		return nil, 0, ErrorIndexOutofbound
-	}
-
-	var reader RuneReader
-	if rn > 0 {
-		reader = lb.StreamCount(bCur, rn)
-	} else {
-		reader = lb.BackStreamCount(bCur, rn)
-	}
-	defer reader.Close()
-
-	var err error
-	var r rune
-	var sz int
-	i, runes, size := 0, make([]rune, rn), int64(0)
-	for {
-		if r, sz, err = reader.ReadRune(); err == io.EOF {
-			break
-		} else if err == nil {
-			runes[i] = r
-			i, size = i+1, size+int64(sz)
-		} else {
-			return nil, 0, err
-		}
-	}
-	return runes[:i], size, nil
+func (lb *LinearBuffer) Runes() Buffer {
+    if len(lb.Text) == 0 {
+        return nil
+    }
+    rs := make([]rune, lb.Length())
+    copy(rs, lb.Text)
+    return &LinearBuffer{Text: rs}
 }
 
 // Concat implement Buffer{} interface.
-func (lb *LinearBuffer) Concat(right *LinearBuffer) (*LinearBuffer, error) {
-	if lb == nil {
-		return right, nil
-	} else if right == nil {
-		return lb, nil
-	}
-	newt := make([]byte, len(lb.Text)+len(right.Text))
-	copy(newt, lb.Text)
-	copy(newt[len(lb.Text):], right.Text)
-	newlb := NewLinearBuffer(newt)
-	return newlb, nil
+func (lb *LinearBuffer) Concat(right Buffer) Buffer {
+    rlb := right.(*LinearBuffer)
+    if lb == nil {
+        return rlb
+    } else if rlb == nil {
+        return lb
+    }
+    rs := make([]rune, len(lb.Text)+len(rlb.Text))
+    copy(rs, lb.Text)
+    copy(rs[len(lb.Text):], rlb.Text)
+    return &LinearBuffer{Text: rs}
 }
 
 // Split implement Buffer{} interface.
-func (lb *LinearBuffer) Split(bCur int64) (left, right *LinearBuffer, err error) {
-	if lb == nil {
-		return left, right, ErrorBufferNil
-	} else if bCur < 0 || bCur > int64(len(lb.Text)) {
-		return left, right, ErrorIndexOutofbound
-	} else if bCur == 0 {
-		return nil, lb, nil
-	} else if bCur == int64(len(lb.Text)) {
-		return lb, nil, nil
-	}
-	lsize, rsize := bCur, int64(len(lb.Text))-bCur
-	l, r := make([]byte, lsize), make([]byte, rsize)
-	copy(l, lb.Text[:lsize])
-	copy(r, lb.Text[lsize:])
-	return NewLinearBuffer(l), NewLinearBuffer(r), nil
+func (lb *LinearBuffer) Split(rCur int64) (left, right Buffer) {
+    l :=  lb.Length()
+    if lb == nil {
+        return left, right
+    } else if rCur >= l {
+        return lb, nil
+    } else if rCur == 0 {
+        return nil, lb
+    }
+    left  = lb.Slice(0, rCur)
+    right = lb.Slice(rCur, l-rCur)
+    return
 }
 
 // Insert implement Buffer{} interface.
-func (lb *LinearBuffer) Insert(bCur int64, text []rune) (*LinearBuffer, error) {
-	textb := []byte(string(text)) // TODO: this could be inefficient.
-	if text == nil {
-		return lb, nil
-	} else if lb == nil {
-		return lb, ErrorBufferNil
-	} else if bCur < 0 || bCur > int64(len(lb.Text)) {
-		return lb, ErrorIndexOutofbound
-	}
-
-	left, right, err := lb.Split(bCur)
-	if err != nil {
-		return lb, err
-	}
-	if left == nil {
-		left = NewLinearBuffer([]byte(""))
-	}
-	if right == nil {
-		right = NewLinearBuffer([]byte(""))
-	}
-	newlb := make([]byte, len(lb.Text)+len(textb))
-	copy(newlb, left.Text)
-	copy(newlb[len(left.Text):], textb)
-	copy(newlb[len(left.Text)+len(textb):], right.Text)
-	return NewLinearBuffer(newlb), nil
+func (lb *LinearBuffer) Insert(rCur int64, text []rune) Buffer {
+    if text == nil {
+        return lb
+    } else if lb == nil {
+        panic(ErrorBufferNil)
+    } else if !lb.isValidCursor(rCur) {
+        panic(ErrorIndexOutofbound)
+    }
+    currLen, insLen := lb.Length(), int64(len(text))
+    rs := make([]rune, currLen + insLen)
+    copy(rs, lb.Text[:rCur])
+    copy(rs[rCur:], text)
+    copy(rs[rCur+insLen:], lb.Text[rCur:])
+    return &LinearBuffer{Text: rs}
 }
 
 // Delete implement Buffer{} interface.
-func (lb *LinearBuffer) Delete(bCur, rn int64) (*LinearBuffer, error) {
-	if lb == nil {
-		return lb, ErrorBufferNil
-	} else if rn == 0 {
-		return lb, nil
-	} else if bCur < 0 || bCur > int64(len(lb.Text)-1) {
-		return lb, ErrorIndexOutofbound
-	}
-	runes, size, err := lb.RuneSlice(bCur, rn)
-	if err != nil {
-		return lb, err
-	} else if int64(len(runes)) != rn {
-		return lb, ErrorIndexOutofbound
-	} else if end := bCur + size; end < 0 || end > int64(len(lb.Text)) {
-		return lb, ErrorIndexOutofbound
-	}
-	newt := make([]byte, int64(len(lb.Text))-size)
-	copy(newt[:bCur], lb.Text[:bCur])
-	copy(newt[bCur:], lb.Text[bCur+size:])
-	newlb := NewLinearBuffer(newt)
-	return newlb, nil
+func (lb *LinearBuffer) Delete(rCur, rn int64) Buffer {
+    if rn == 0 {
+        return lb
+    } else if lb == nil {
+        panic(ErrorBufferNil)
+    } else if !lb.isValidCursor(rCur) {
+        panic(ErrorIndexOutofbound)
+    }
+    rs := make([]rune, int64(len(lb.Text))-rn)
+    copy(rs[:rCur], lb.Text[:rCur])
+    copy(rs[rCur:], lb.Text[rCur+rn:])
+    return &LinearBuffer{Text: rs}
 }
 
 // InsertIn implement Buffer{} interface.
-func (lb *LinearBuffer) InsertIn(bCur int64, text []rune) (*LinearBuffer, error) {
-	textb := []byte(string(text)) // TODO: this could be inefficient
-	x := int64(len(lb.Text))
-	if text == nil || len(textb) == 0 {
-		return lb, nil
-	} else if lb == nil {
-		return lb, ErrorBufferNil
-	} else if x == 0 {
-		return NewLinearBuffer(textb), nil
-	} else if bCur < 0 || bCur > x {
-		return lb, ErrorIndexOutofbound
-	}
-
-	leftSl := make([]byte, x-bCur)
-	copy(leftSl, lb.Text[bCur:])
-	lb.Text = append(lb.Text[:bCur], textb...)
-	lb.Text = append(lb.Text, leftSl...)
-	return lb, nil
+func (lb *LinearBuffer) InsertIn(rCur int64, text []rune) Buffer {
+    if text == nil {
+        return lb
+    } else if lb == nil {
+        panic(ErrorBufferNil)
+    } else if !lb.isValidCursor(rCur) {
+        panic(ErrorIndexOutofbound)
+    }
+    l := int64(len(text))
+    lb.Text = append(lb.Text, lb.Text[rCur:]...)
+    copy(lb.Text[rCur:rCur+l], text)
+    return lb
 }
 
 // DeleteIn implement Buffer{} interface.
-func (lb *LinearBuffer) DeleteIn(bCur, rn int64) (*LinearBuffer, error) {
-	x := int64(len(lb.Text))
-	if lb == nil {
-		return lb, ErrorBufferNil
-	} else if rn == 0 {
-		return lb, nil
-	} else if bCur < 0 || bCur > (x-1) {
-		return lb, ErrorIndexOutofbound
-	}
-	_, size, err := lb.RuneSlice(bCur, rn)
-	if err != nil {
-		return lb, err
-	} else if end := bCur + size; end < 0 || end > x {
-		return lb, ErrorIndexOutofbound
-	}
-	copy(lb.Text[bCur:], lb.Text[bCur+size:])
-	lb.Text = lb.Text[:x-size]
-	return lb, nil
+func (lb *LinearBuffer) DeleteIn(rCur, rn int64) Buffer {
+    if rn == 0 {
+        return lb
+    } else if lb == nil {
+        panic(ErrorBufferNil)
+    } else if !lb.isValidCursor(rCur) {
+        panic(ErrorIndexOutofbound)
+    }
+    l := int64(len(lb.Text))
+    copy(lb.Text[rCur:], lb.Text[rCur+rn:])
+    lb.Text = lb.Text[:l-rn]
+    return lb
 }
 
+//------------
+// search APIs
+//------------
+
 // StreamFrom implement Buffer interface{}.
-func (lb *LinearBuffer) StreamFrom(bCur int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if bCur >= int64(len(lb.Text)) || finish {
-			return r, size, io.EOF
-		}
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		bCur += int64(size)
-		return r, size, nil
-	})
+func (lb *LinearBuffer) StreamFrom(rCur int64) RuneReader {
+    if !lb.isValidCursor(rCur) {
+        return nil
+    }
+    ln := int64(len(lb.Text))
+    return iterator(func(finish bool) (r rune, size int, err error) {
+        if rCur >= ln || finish {
+            return r, size, io.EOF
+        }
+        r = lb.Text[rCur]
+        rCur++
+        return r, utf8.RuneLen(r), nil
+    })
 }
 
 // StreamCount implement Buffer interface{}.
-func (lb *LinearBuffer) StreamCount(bCur, count int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if bCur > int64(len(lb.Text)) || (count <= 0) || finish {
-			return r, size, io.EOF
-		}
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		bCur += int64(size)
-		count--
-		return r, size, nil
-	})
-}
-
-// StreamTill implement Buffer interface{}.
-func (lb *LinearBuffer) StreamTill(bCur, till int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if bCur > int64(len(lb.Text)) || (bCur >= till) || finish {
-			return r, size, io.EOF
-		}
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		bCur += int64(size)
-		return r, size, nil
-	})
+func (lb *LinearBuffer) StreamCount(rCur, count int64) RuneReader {
+    if !lb.isValidCursor(rCur) {
+        return nil
+    }
+    ln := int64(len(lb.Text))
+    return iterator(func(finish bool) (r rune, size int, err error) {
+        if rCur >= ln  ||  count <= 0  ||  finish {
+            return r, size, io.EOF
+        }
+        r = lb.Text[rCur]
+        count--; rCur++
+        return r, utf8.RuneLen(r), nil
+    })
 }
 
 // BackStreamFrom implement Buffer interface{}.
-func (lb *LinearBuffer) BackStreamFrom(bCur int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if (bCur == 0) || finish {
-			return r, size, io.EOF
-		}
-		from := bCur - MaxRuneWidth
-		if from < 0 {
-			from = 0
-		}
-		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
-		if err != nil {
-			return r, size, err
-		}
-		bCur = from + n
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		return r, size, nil
-	})
+func (lb *LinearBuffer) BackStreamFrom(rCur int64) RuneReader {
+    if !lb.isValidCursor(rCur) {
+        return nil
+    }
+    return iterator(func(finish bool) (r rune, size int, err error) {
+        rCur--
+        if rCur <= 0 || finish {
+            return r, size, io.EOF
+        }
+        r = lb.Text[rCur]
+        return r, utf8.RuneLen(r), nil
+    })
 }
 
 // BackStreamCount implement Buffer interface{}.
-func (lb *LinearBuffer) BackStreamCount(bCur, count int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if (count <= 0) || (bCur <= 0) || finish {
-			return r, size, io.EOF
-		}
-		from := bCur - MaxRuneWidth
-		if from < 0 {
-			from = 0
-		}
-		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
-		if err != nil {
-			return r, size, err
-		}
-		bCur = from + n
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		count--
-		return r, size, nil
-	})
+func (lb *LinearBuffer) BackStreamCount(rCur, count int64) RuneReader {
+    if !lb.isValidCursor(rCur) {
+        return nil
+    }
+    return iterator(func(finish bool) (r rune, size int, err error) {
+        rCur--;
+        if rCur <= 0  ||  count <= 0  ||  finish {
+            return r, size, io.EOF
+        }
+        r = lb.Text[rCur]
+        count--
+        return r, utf8.RuneLen(r), nil
+    })
 }
 
-// BackStreamTill implement Buffer interface{}.
-func (lb *LinearBuffer) BackStreamTill(bCur, till int64) RuneReader {
-	return iterator(func(finish bool) (r rune, size int, err error) {
-		if (0 <= bCur) || (bCur >= till) || finish {
-			return r, size, io.EOF
-		}
-		from := bCur - MaxRuneWidth
-		if from < 0 {
-			from = 0
-		}
-		n, err := getRuneStart(lb.Text[from:bCur], true /*reverse*/)
-		if err != nil {
-			return r, size, err
-		}
-		bCur = from + n
-		r, size = utf8.DecodeRune(lb.Text[bCur:])
-		return r, size, nil
-	})
+//----------
+// byte APIs
+//----------
+
+// Size implement Buffer{} interface.
+func (lb *LinearBuffer) Size() int64 {
+    return int64(len(lb.Bytes()))
+}
+
+// Bytes implement Buffer{} interface.
+func (lb *LinearBuffer) Bytes() []byte {
+    return runes2Bytes(lb.Text)
 }
 
 // Stats implement Buffer{} interface.
 func (lb *LinearBuffer) Stats() (stats Statistics, err error) {
-	return
+    return
+}
+
+
+//---------------
+// local function
+//---------------
+
+func (lb *LinearBuffer) isValidCursor(rCur int64) bool {
+    return 0 <= rCur && rCur <= lb.Length()
 }

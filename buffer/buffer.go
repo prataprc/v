@@ -1,114 +1,124 @@
 package buffer
 
 import "fmt"
-import "regexp"
+import "errors"
 
 var _ = fmt.Sprintf("dummy")
 
-const MaxRuneWidth = 10
+// MaxRuneWidth is sizeof(rune) datatype.
+const MaxRuneWidth = 4
 
+// Statistics is a key,value map of counters.
 type Statistics map[string]interface{}
 
-// Buffer describes a buffer and access into buffer, where a
-// buffer can be implemented as linear array, gap-buffer,
-// rope-buffer etc.
+//-------------------
+// Buffer error codes
+//-------------------
+
+// ErrorBufferNil says buffer is not initialized.
+var ErrorBufferNil = errors.New("buffer.uninitialized")
+
+// ErrorIndexOutofbound says access to buffer is outside its
+// size.
+var ErrorIndexOutofbound = errors.New("buffer.indexOutofbound")
+
+// ErrorInvalidEncoding
+var ErrorInvalidEncoding = errors.New("buffer.invalidEncoding")
+
+// ErrorReadonlyBuffer says buffer cannot be changed.
+var ErrorReadonlyBuffer = errors.New("editbuffer.ronly")
+
+// ErrorOldestChange says there is not more change to undo.
+var ErrorOldestChange = errors.New("editbuffer.oldestChange")
+
+// ErrorLatestChange says there is no more change to redo.
+var ErrorLatestChange = errors.New("editbuffer.latestChange")
+
+// Buffer describes a buffer and APIs to access the buffer,
+// where a buffer can be implemented as linear array, gap-buffer,
+// rope-buffer, line-buffer etc.
 //
-// Within a buffer text is maintained as byte-array.
-//
-// bCur - unicode aligned cursor within the buffer starting from 0,
+// bCur - utf8 aligned cursor within the buffer starting from 0,
 // where a value of N means there are N bytes before the
-// cursor, 0 means start and z len(buffer) means.
+// cursor, 0 means start and len(buffer) means end.
 type Buffer interface {
-	// Length return no. of bytes in buffer.
-	Length() (l int64, err error)
 
-	// Value returns full content in buffer as byte-array.
-	Value() []byte
+    //---- Rune APIs
 
-	// Slice return a substring of length Bn bytes after
-	// bCur number of bytes from start.
-	Slice(bCur, Bn int64) (val []byte, err error)
+    // Length return no. of runes in buffer.
+    Length() int64
 
-	// RuneAt retrieves the rune at bCur and no.of bytes to
-	// decode rune, where bCur starts from 0 till length of
-	// buffer. If buffer size is 22
-	// 0  - returns the first rune in buffer.
-	// 21 - returns the last rune in buffer.
-	// 22 - return ErrorIndexOutofbound
-	RuneAt(bCur int64) (ch rune, size int, err error)
+    // Slice return slice of runes of Bn bytes starting
+    // from rune offset rCur.
+    Slice(rCur, rn int64) Buffer
 
-	// Runes return full content in buffer as rune-array.
-	Runes() ([]rune, error)
+    // Runes return full content in buffer as rune-array.
+    Runes() Buffer
 
-	// RuneSlice return a substring of length `rn` runes after
-	// bCur number of bytes from start. It also returns the
-	// no.of bytes consume to decode `rn` runes.
-	RuneSlice(bCur, rn int64) (runes []rune, size int64, err error)
+    // Concat adds another buffer element adjacent to the
+    // current buffer.
+    Concat(other Buffer) Buffer
 
-	// Concat adds another buffer element adjacent to the
-	// current buffer.
-	Concat(other Buffer) (buf Buffer, err error)
+    // Split this buffer at rCur, and return two equivalent buffer
+    // elements, a rCur of value `n` would mean `n` runes to the
+    // left buffer.
+    Split(rCur int64) (left, right Buffer)
 
-	// Split this buffer at bCur, and return two equivalent buffer
-	// elements, a bCur of value Bn would mean Bn bytes to the
-	// left buffer.
-	Split(bCur int64) (left Buffer, right Buffer, err error)
+    // Insert addes one or more runes at rCur, where there would
+    // be rCur runes to the left.
+    // Returns a new buffer with inserted runes.
+    Insert(rCur int64, text []rune) Buffer
 
-	// Insert addes one or more runes at bCur, semantically
-	// pushing the runes at the bCur to the right. Returns a
-	// new reference without creating side-effects.
-	Insert(bCur int64, text []rune) (buf Buffer, err error)
+    // Delete will remove `rn` runes after `rCur`.
+    // Returns a new buffer with deleted runes.
+    Delete(rCur int64, rn int64) Buffer
 
-	// Delete generates a new buffer by deleting `rn` runes from
-	// the original buffer after bCur. Returns a new reference
-	// without creating side-effects.
-	Delete(bCur int64, rn int64) (buf Buffer, err error)
+    // InsertIn addes, in place, one or more runes at rCur,
+    // semantically pushing the runes at the rCur to the right.
+    // Returns the same reference. NonPersistant API.
+    InsertIn(rCur int64, text []rune) Buffer
 
-	// InsertIn addes, in place, one or more runes at bCur,
-	// semantically pushing the runes at the bCur to the right.
-	// Returns the same reference.
-	// NonPersistant API.
-	InsertIn(bCur int64, text []rune) (buf Buffer, err error)
+    // DeleteIn deletes, in place, `rn` runes from the original
+    // buffer after rCur.
+    // Returns the same reference. NonPersistant API.
+    DeleteIn(rCur int64, rn int64) Buffer
 
-	// DeleteIn deletes, in place, `rn` runes from the original
-	// buffer after bCur. Returns the same reference.
-	// NonPersistant API.
-	DeleteIn(bCur int64, rn int64) (buf Buffer, err error)
+    //---- Search APIs
 
-	// StreamFrom returns a RuneReader starting from `bCur`.
-	StreamFrom(bCur int64) RuneReader
+    // StreamFrom returns a RuneReader starting from `rCur`.
+    StreamFrom(rCur int64) RuneReader
 
-	// StreamCount returns a RuneReader starting from `bCur`
-	// for `count` number of runes.
-	StreamCount(bCur, count int64) RuneReader
+    // StreamCount returns a RuneReader starting from `rCur`
+    // for `count` number of runes.
+    StreamCount(rCur, count int64) RuneReader
 
-	// StreamTill returns a RuneReader starting from `bCur`
-	// until `till` number of bytes decoded.
-	StreamTill(bCur, till int64) RuneReader
+    // BackStreamFrom returns a RuneReader starting from `rCur`,
+    // streaming in the backward direction.
+    BackStreamFrom(rCur int64) RuneReader
 
-	// BackStreamFrom returns a RuneReader starting from `bCur`,
-	// streaming in the backward direction.
-	BackStreamFrom(bCur int64) RuneReader
+    // BackStreamCount returns a RuneReader starting from `rCur`,
+    // in backward direction, for `count` number of runes.
+    BackStreamCount(rCur, count int64) RuneReader
 
-	// BackStreamCount returns a RuneReader starting from `bCur`,
-	// in backward direction, for `count` number of runes.
-	BackStreamCount(bCur, count int64) RuneReader
+    //---- Byte APIs
 
-	// BackStreamTill returns a RuneReader starting from `bCur`,
-	// in backward direction, until `till` number of bytes decoded.
-	BackStreamTill(bCur, till int64) RuneReader
+    // Size return no. of bytes in buffer.
+    Size() int64
 
-	// Stats return a key,value pair of interesting statistiscs.
-	Stats() (stats Statistics, err error)
+    // Bytes returns full content for buffer as byte-array.
+    Bytes() []byte
+
+    // Stats return a key,value pair of interesting statistiscs.
+    Stats() (Statistics, error)
 }
 
 type RuneReader interface {
-	// ReadRune will read one rune at a time from buffer,
-	// until io.EOF is reached.
-	ReadRune() (r rune, size int, err error)
+    // ReadRune will read one rune at a time from buffer,
+    // until io.EOF is reached.
+    ReadRune() (r rune, size int, err error)
 
-	// Close() the reader.
-	Close()
+    // Close() the reader.
+    Close()
 }
 
 // iterator implements RuneReader interface{}.
@@ -116,34 +126,10 @@ type iterator func(finish bool) (r rune, size int, err error)
 
 // ReadRune implements RuneReader interface{}.
 func (fn iterator) ReadRune() (rune, int, error) {
-	return fn(false)
+    return fn(false)
 }
 
 // ReadRune implements RuneReader interface{}.
 func (fn iterator) Close() {
-	fn(true)
-}
-
-// Find `regex` pattern within buffer streamed by RuneReader
-// streaming can be in any direction and regex is expected to be
-// specified accordingly.
-func Find(regex interface{}, r RuneReader) Finder {
-	var re *regexp.Regexp
-	var err error
-
-	switch v := regex.(type) {
-	case string:
-		re, err = regexp.Compile(v)
-		if err != nil {
-			panic(err)
-		}
-	case *regexp.Regexp:
-		re = v
-	case func() *regexp.Regexp:
-		re = v()
-	default:
-		panic("impossible situation")
-	}
-
-	return Finder(func() []int { return re.FindReaderIndex(r) })
+    fn(true)
 }
