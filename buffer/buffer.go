@@ -43,82 +43,82 @@ var ErrorLatestChange = errors.New("editbuffer.latestChange")
 // cursor, 0 means start and len(buffer) means end.
 type Buffer interface {
 
-    //---- Rune APIs
+	//---- Rune APIs
 
-    // Length return no. of runes in buffer.
-    Length() int64
+	// Length return no. of runes in buffer.
+	Length() int64
 
-    // Slice return slice of runes of Bn bytes starting
-    // from rune offset rCur.
-    Slice(rCur, rn int64) Buffer
+	// Slice return slice of runes of Bn bytes starting
+	// from rune offset rCur.
+	Slice(rCur, rn int64) Buffer
 
-    // Runes return full content in buffer as rune-array.
-    Runes() Buffer
+	// Runes return full content in buffer as rune-array.
+	Runes() []rune
 
-    // Concat adds another buffer element adjacent to the
-    // current buffer.
-    Concat(other Buffer) Buffer
+	// Concat adds another buffer element adjacent to the
+	// current buffer.
+	Concat(other Buffer) Buffer
 
-    // Split this buffer at rCur, and return two equivalent buffer
-    // elements, a rCur of value `n` would mean `n` runes to the
-    // left buffer.
-    Split(rCur int64) (left, right Buffer)
+	// Split this buffer at rCur, and return two equivalent buffer
+	// elements, a rCur of value `n` would mean `n` runes to the
+	// left buffer.
+	Split(rCur int64) (left, right Buffer)
 
-    // Insert addes one or more runes at rCur, where there would
-    // be rCur runes to the left.
-    // Returns a new buffer with inserted runes.
-    Insert(rCur int64, text []rune) Buffer
+	// Insert addes one or more runes at rCur, where there would
+	// be rCur runes to the left.
+	// Returns a new buffer with inserted runes.
+	Insert(rCur int64, text []rune) Buffer
 
-    // Delete will remove `rn` runes after `rCur`.
-    // Returns a new buffer with deleted runes.
-    Delete(rCur int64, rn int64) Buffer
+	// Delete will remove `rn` runes after `rCur`.
+	// Returns a new buffer with deleted runes.
+	Delete(rCur int64, rn int64) Buffer
 
-    // InsertIn addes, in place, one or more runes at rCur,
-    // semantically pushing the runes at the rCur to the right.
-    // Returns the same reference. NonPersistant API.
-    InsertIn(rCur int64, text []rune) Buffer
+	// InsertIn addes, in place, one or more runes at rCur,
+	// semantically pushing the runes at the rCur to the right.
+	// Returns the same reference. NonPersistant API.
+	InsertIn(rCur int64, text []rune) Buffer
 
-    // DeleteIn deletes, in place, `rn` runes from the original
-    // buffer after rCur.
-    // Returns the same reference. NonPersistant API.
-    DeleteIn(rCur int64, rn int64) Buffer
+	// DeleteIn deletes, in place, `rn` runes from the original
+	// buffer after rCur.
+	// Returns the same reference. NonPersistant API.
+	DeleteIn(rCur int64, rn int64) Buffer
 
-    //---- Search APIs
+	//---- Search APIs
 
-    // StreamFrom returns a RuneReader starting from `rCur`.
-    StreamFrom(rCur int64) RuneReader
+	// StreamFrom returns a RuneReader starting from `rCur`.
+	StreamFrom(rCur int64) RuneReader
 
-    // StreamCount returns a RuneReader starting from `rCur`
-    // for `count` number of runes.
-    StreamCount(rCur, count int64) RuneReader
+	// StreamCount returns a RuneReader starting from `rCur`
+	// for `count` number of runes.
+	StreamCount(rCur, count int64) RuneReader
 
-    // BackStreamFrom returns a RuneReader starting from `rCur`,
-    // streaming in the backward direction.
-    BackStreamFrom(rCur int64) RuneReader
+	// BackStreamFrom returns a RuneReader starting from `rCur`,
+	// streaming in the backward direction.
+	BackStreamFrom(rCur int64) RuneReader
 
-    // BackStreamCount returns a RuneReader starting from `rCur`,
-    // in backward direction, for `count` number of runes.
-    BackStreamCount(rCur, count int64) RuneReader
+	// BackStreamCount returns a RuneReader starting from `rCur`,
+	// in backward direction, for `count` number of runes.
+	BackStreamCount(rCur, count int64) RuneReader
 
-    //---- Byte APIs
+	//---- Byte APIs
 
-    // Size return no. of bytes in buffer.
-    Size() int64
+	// Size return no. of bytes in buffer.
+	Size() int64
 
-    // Bytes returns full content for buffer as byte-array.
-    Bytes() []byte
+	// Bytes returns full content for buffer as byte-array.
+	Bytes() []byte
 
-    // Stats return a key,value pair of interesting statistiscs.
-    Stats() (Statistics, error)
+	// Stats return a key,value pair of interesting statistiscs.
+	Stats() (Statistics, error)
 }
 
 type RuneReader interface {
-    // ReadRune will read one rune at a time from buffer,
-    // until io.EOF is reached.
-    ReadRune() (r rune, size int, err error)
+	// ReadRune will read one rune at a time from buffer,
+	// until io.EOF is reached.
+	ReadRune() (r rune, size int, err error)
 
-    // Close() the reader.
-    Close()
+	// Close() the reader.
+	Close()
 }
 
 // iterator implements RuneReader interface{}.
@@ -126,10 +126,10 @@ type iterator func(finish bool) (r rune, size int, err error)
 
 // ReadRune implements RuneReader interface{}.
 func (fn iterator) ReadRune() (rune, int, error) {
-    return fn(false)
+	return fn(false)
 }
 
 // ReadRune implements RuneReader interface{}.
 func (fn iterator) Close() {
-    fn(true)
+	fn(true)
 }
