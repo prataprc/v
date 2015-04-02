@@ -29,12 +29,65 @@ func TestLinearSliceRunes(t *testing.T) {
 }
 
 func TestLinearConcat(t *testing.T) {
-	s1, s2 := testChinese, testChinese
-	lb1 := NewLinearBuffer([]byte(s1))
-	lb2 := NewLinearBuffer([]byte(s2))
-	lb := lb1.Concat(lb2)
-	if string(lb.Runes()) != (s1 + s2) {
-		t.Fatalf("expected concat of s1 and s2")
+	testcases := [][]string{
+		[]string{testChinese, testChinese},
+		[]string{``, testChinese},
+		[]string{testChinese, ``},
+		[]string{``, ``},
+	}
+	for _, testcase := range testcases {
+		s1, s2 := testcase[0], testcase[1]
+		lb1 := NewLinearBuffer([]byte(s1))
+		lb2 := NewLinearBuffer([]byte(s2))
+		lb := lb1.Concat(lb2)
+		if string(lb.Runes()) != (s1 + s2) {
+			t.Fatalf("expected concat of s1 and s2")
+		}
+	}
+}
+
+func TestLinearSplit(t *testing.T) {
+	lb := NewLinearBuffer([]byte(testChinese))
+	testcases := [][]interface{}{
+		[]interface{}{int64(-1), nil, nil},
+		[]interface{}{int64(0), nil, string(lb.Runes())},
+		[]interface{}{lb.Length(), string(lb.Runes()), nil},
+		[]interface{}{lb.Length() + 1, string(lb.Runes()), nil},
+	}
+	for _, tc := range testcases {
+		rCur, l, r := tc[0].(int64), tc[1], tc[2]
+		llb, rlb := lb.Split(int64(rCur))
+		t.Logf("rCur: %v\n", rCur)
+		if l == nil && llb != nil {
+			t.Fatalf("expected %v != %v", l, llb)
+		} else if l != nil && (l.(string) != string(llb.Runes())) {
+			t.Fatalf("expected %v != %v", l, llb)
+		}
+		if r == nil && rlb != nil {
+			t.Fatalf("expected %v != %v", r, rlb)
+		} else if r != nil && (r.(string) != string(rlb.Runes())) {
+			t.Fatalf("expected %v != %v", r, rlb)
+		}
+	}
+}
+
+func TestLinearInsert(t *testing.T) {
+	lb := NewLinearBuffer([]byte(testChinese))
+	testRunes := []rune(testChinese)
+	testcases := [][]interface{}{
+		[]interface{}{0, testChinese, testChinese + testChinese},
+		[]interface{}{
+			1, testChinese,
+			string(testRunes[0]) + testChinese + string(testRunes[1:])},
+		[]interface{}{len(testRunes), testChinese, testChinese + testChinese},
+	}
+	for _, tc := range testcases {
+		rCur, text, ref := int64(tc[0].(int)), tc[1].(string), tc[2].(string)
+		newlb := lb.Insert(rCur, []rune(text))
+		t.Logf("rCur: %v\n", rCur)
+		if s := string(newlb.Runes()); s != ref {
+			t.Fatalf("expected %v != %v", ref, s)
+		}
 	}
 }
 
