@@ -130,9 +130,12 @@ func BenchmarkBytes2RunesN(b *testing.B) {
 }
 
 func BenchmarkBytes2Runes(b *testing.B) {
-	bytes := []byte(testChinese)
+	//bytes := []byte(testChinese)
+	acc := make([]rune, 1000)
 	for i := 0; i < b.N; i++ {
-		bytes2Runes(bytes)
+		for i, ch := range testChinese {
+			acc[i] = ch
+		}
 	}
 	b.SetBytes(int64(len(testChinese)))
 }
