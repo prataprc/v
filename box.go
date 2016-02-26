@@ -10,87 +10,171 @@ var Maxplanes = 10
 
 // Box is where the buffer is rendered.
 type Box struct {
-	name      string
-	container *Box
-	planes    []*Plane
-	buffer    Buffer
-	display   term.Cell
+	name       string
+	container  *Box
+	containerz int
+	planes     []*Plane
+	widget     Widget
+	float      string
 
 	// properties
-	x, y              int          // absolute reference from (1,1)
-	width, height     int          // border to border, includes padding
-	margins, paddings []int        // top, right, down, left
-	borders           []*term.Cell // top, right, down, left
+	x, y                int          // relative to plane, excludes padding
+	width, height       int          // excludes border, includes padding
+	tmargins, tpaddings []string     // top, right, down, left
+	margins, paddings   []int        // top, right, down, left
+	bordercells         []*term.Cell // top, right, down, left
+	borders             []int        // top, right, down, left
+}
+
+type Plane struct {
+	z        int
+	this     *Box
+	children []*Box
 }
 
 // params
+// `z` - stack level in zaxis
 // `width` - width of the box
 // `height` - height of the box
+// `float` - affinity to float, "left", "right"
+// `display` - whether to display the box or not
+// `margin` - margin specification for all sides
 // `border` - border specification for all sides
 // `padding` - padding specification for all sides
 func NewBox(name string, container *Box, params map[string]interface{}) *Box {
-	box := &Box{name: name, container: container}
-
-	// width and height
-	contwidth, contheight := container.planesize()
-	box.width = box.getparam(params, "width", contwidth).(int)
-	box.height = box.getparam(params, "height", contheight).(int)
-
-	// outline
-	box.margins = box.parammargins(params)
-	box.borders = box.paramborders(params)
-	box.paddings = box.parampaddings(params)
-
+	z := boxgetparam(params, "z", 0).(int)
+	float := boxgetparam(params, "float", "left").(string)
+	box := &Box{
+		name: name, container: container, containerz: z, float: float,
+	}
 	// planes and display buffer
 	planes := make([]*Plane, 0, Maxplanes)
 	for z := 0; z < Maxplanes; z++ {
-		planes = append(planes, newplane(box, z))
+		plane := &Plane{this: box, z: z, children: make([]*Box, 0)}
+		planes = append(planes, plane)
 	}
 	box.planes = planes
+
+	height := box.Root().height
+
+	// outline
+	box.tmargins = box.parsemargins(params)
+	box.tpaddings = box.parsepaddings(params)
+	box.bordercells, box.borders = box.parseborders(params)
+	box.width = boxgetparam(params, "width", 0).(int)
+	box.height = boxgetparam(params, "height", height).(int)
+	if box.height < 0 {
+		box.height = height
+	}
+
 	return box
 }
 
+func (box *Box) Root() *Box {
+	if box.container == nil {
+		return box
+	}
+	return box.container.Root()
+}
+
+func (box *Box) String() string {
+	fmsg := "box#%v{(%v,%v) -%v- |%v| m:%v, b:%v, p:%v}"
+	return fmt.Sprintf(
+		fmsg,
+		box.name, box.x, box.y, box.width, box.height, box.margins,
+		box.borders, box.paddings)
+}
+
+func (box *Box) Setroot(contw, conth int) {
+	var err error
+	if box.margins, err = box.fixmargins(contw); err != nil {
+		panic(fmt.Errorf("error fixing margins: %v", err))
+	}
+	if box.paddings, err = box.fixpaddings(contw); err != nil {
+		panic(fmt.Errorf("error fixing padding: %v", err))
+	}
+	box.x, box.y = box.margins[3], box.margins[0]
+	box.width = contw - box.margins[1] - box.margins[3]
+	box.height = conth - box.margins[0] - box.margins[2]
+}
+
 func (box *Box) AddBox(name string, params map[string]interface{}) {
-	cbox := NewBox(name, box, params)
-	z := box.getparam(params, "z", 0).(int)
-	box.planes[z].addbox(cbox)
+	child := NewBox(name, box, params)
+	z := boxgetparam(params, "z", 0).(int)
+	plane := box.planes[z]
+	plane.children = append(plane.children, child)
 }
 
-func (box *Box) planesize() (width, height int) {
-	width = box.width - box.paddings[1] - box.paddings[3]
-	height = box.width - box.paddings[0] - box.paddings[2]
-	return width, height
-}
-
-func (box *Box) planexy() (x, y int) {
-	return box.paddings[0], box.paddings[3]
-}
-
-func (box *Box) bordercells() {
-}
-
-func (box *Box) paddingcells() {
-}
-
-// parse parameters
-
-func (box *Box) parammargins(params map[string]interface{}) []int {
-	arg, _ := params["margin"]
-	rv := make([]int, 0)
-	switch margin := arg.(type) {
-	case string:
-		margin = strings.Trim(margin, " \t\r\n")
-		for _, item := range strings.Split(margin, ",") {
-			n, err := strconv.Atoi(item)
-			if err != nil {
-				panic(fmt.Errorf("box %q invalid padding: %v", box.name, err))
-			}
-			rv = append(rv, n)
+func (box *Box) Align() {
+	x := box.x + box.borders[3] + box.paddings[3]
+	y := box.y + box.borders[0] + box.paddings[0]
+	width := box.width - box.borders[1] - box.borders[3]
+	width -= (box.paddings[1] + box.paddings[3])
+	for _, plane := range box.planes {
+		root := newpackbox(x, y, width, -1)
+		if len(root.fit(plane.children)) != 0 {
+			panic("unable to fix")
 		}
-	case []int:
-		rv = append(rv, margin...)
-	default:
-		rv = append(rv, 0, 0, 0, 0)
+	}
+}
+
+func (box *Box) Setsize(width, height int) {
+	box.width, box.height = width, height
+}
+
+func (box *Box) Dump(prefix string) {
+	fmt.Printf("%v%v\n", prefix, box)
+	for i, plane := range box.planes {
+		if len(plane.children) > 0 {
+			fmt.Printf("%vPlane: %v\n", prefix, i)
+			for _, box := range plane.children {
+				box.Dump(prefix + "  ")
+			}
+		}
+	}
+}
+
+//---- Dimension{} interface
+
+func (box *Box) Size() (width, height int) {
+	return box.width, box.height
+}
+
+func (box *Box) Margin() (top, right, bottom, left int) {
+	margins := box.margins
+	return margins[0], margins[1], margins[2], margins[3]
+}
+
+func (box *Box) Border() (top, right, bottom, left int) {
+	borders := box.borders
+	return borders[0], borders[1], borders[2], borders[3]
+}
+
+func (box *Box) Padding() (top, right, bottom, left int) {
+	paddings := box.paddings
+	return paddings[0], paddings[1], paddings[2], paddings[3]
+}
+
+func (box *Box) Float() (side string) {
+	return box.float
+}
+
+func (box *Box) Setcoordinate(x, y int) {
+	box.x, box.y = x, y
+}
+
+//---- local functions
+
+func (box *Box) parsemargins(params map[string]interface{}) []string {
+	value, ok := params["margin"]
+	if !ok {
+		return []string{"0", "0", "0", "0"}
+	}
+
+	margin := strings.Trim(value.(string), " \t\r\n")
+	rv := make([]string, 0)
+	for _, item := range strings.Split(margin, ",") {
+		rv = append(rv, item)
 	}
 	switch len(rv) {
 	case 1:
@@ -103,23 +187,16 @@ func (box *Box) parammargins(params map[string]interface{}) []int {
 	panic(fmt.Errorf("box %v, invalid number of margins: %v", box.name, rv))
 }
 
-func (box *Box) parampaddings(params map[string]interface{}) []int {
-	arg, _ := params["padding"]
-	rv := make([]int, 0)
-	switch padd := arg.(type) {
-	case string:
-		padd = strings.Trim(padd, " \t\r\n")
-		for _, item := range strings.Split(padd, ",") {
-			n, err := strconv.Atoi(item)
-			if err != nil {
-				panic(fmt.Errorf("box %q invalid padding: %v", box.name, err))
-			}
-			rv = append(rv, n)
-		}
-	case []int:
-		rv = append(rv, padd...)
-	default:
-		rv = append(rv, 0, 0, 0, 0)
+func (box *Box) parsepaddings(params map[string]interface{}) []string {
+	value, ok := params["padding"]
+	if !ok {
+		return []string{"0", "0", "0", "0"}
+	}
+
+	padding := strings.Trim(value.(string), " \t\r\n")
+	rv := make([]string, 0)
+	for _, item := range strings.Split(padding, ",") {
+		rv = append(rv, item)
 	}
 	switch len(rv) {
 	case 1:
@@ -129,32 +206,79 @@ func (box *Box) parampaddings(params map[string]interface{}) []int {
 	case 4:
 		return rv
 	}
-	panic(fmt.Errorf("box %v, invalid number of margins: %v", box.name, rv))
+	panic(fmt.Errorf("box %v, invalid number of paddings: %v", box.name, rv))
+}
+
+func (box *Box) fixmargins(contw int) ([]int, error) {
+	margins := make([]int, 0)
+	for _, item := range box.tmargins {
+		var n int
+		if strings.HasSuffix(item, "%") {
+			f, err := strconv.ParseFloat(item[:len(item)-1], 64)
+			if err != nil {
+				return nil, err
+			} else {
+				n = int(float64(contw) * (f / 100))
+			}
+		}
+		f, err := strconv.ParseFloat(item, 64)
+		if err != nil {
+			return nil, err
+		}
+		n = int(f)
+		margins = append(margins, n)
+	}
+	return margins, nil
+}
+
+func (box *Box) fixpaddings(contw int) ([]int, error) {
+	paddings := make([]int, 0)
+	for _, item := range box.tpaddings {
+		var n int
+		if strings.HasSuffix(item, "%") {
+			f, err := strconv.ParseFloat(item[:len(item)-1], 64)
+			if err != nil {
+				return nil, err
+			} else {
+				n = int(float64(contw) * (f / 100))
+			}
+		}
+		f, err := strconv.ParseFloat(item, 64)
+		if err != nil {
+			return nil, err
+		}
+		n = int(f)
+		paddings = append(paddings, n)
+	}
+	return paddings, nil
 }
 
 var BorderLine = [4]rune{'─', '│', '─', '│'}
 
-//	'∗'
-
-func (box *Box) paramborders(p map[string]interface{}) []*term.Cell {
+func (box *Box) parseborders(p map[string]interface{}) ([]*term.Cell, []int) {
 	item, ok := p["border"]
 	if !ok {
-		return nil
+		return []*term.Cell{nil, nil, nil, nil}, []int{0, 0, 0, 0}
 	}
-	borders := strings.Trim(item.(string), " \t\r\n")
+	border := strings.Trim(item.(string), " \t\r\n")
 
-	cells := make([]*term.Cell, 0)
-	for i, arg := range strings.Split(borders, ";") {
-		cells = append(cells, box.paramborder(i, arg))
+	cells, borders := make([]*term.Cell, 0), make([]int, 4)
+	for i, arg := range strings.Split(border, ";") {
+		cell := box.parseborder(i, arg)
+		cells = append(cells, cell)
+		borders[i] = 1
+		if cell == nil {
+			borders[i] = 0
+		}
 	}
-
 	if len(cells) == 4 {
-		return cells
+		return cells, borders
 	}
 	panic(fmt.Errorf("box %v, specify all borders"))
 }
 
-func (box *Box) paramborder(side int, border string) (c *term.Cell) {
+// <type>[,<color:attribute>,<color:attribute>]
+func (box *Box) parseborder(side int, border string) (c *term.Cell) {
 	var fgok bool
 	for _, arg := range strings.Split(strings.Trim(border, " \t\r\n"), ",") {
 		switch arg {
@@ -167,18 +291,19 @@ func (box *Box) paramborder(side int, border string) (c *term.Cell) {
 
 		default:
 			if c == nil {
-				panic(fmt.Errorf("box %q start with border type", box.name))
+				panic(fmt.Errorf("box %q, start with border type", box.name))
 			} else if fgok == false {
-				c.Fg = box.paramattr(arg)
 				fgok = true
+				c.Fg = box.parsebrdrattr(arg)
 			}
-			c.Bg = box.paramattr(arg)
+			c.Bg = box.parsebrdrattr(arg)
 		}
 	}
 	return
 }
 
-func (box *Box) paramattr(attr string) (a term.Attribute) {
+// <color:attribute>
+func (box *Box) parsebrdrattr(attr string) (a term.Attribute) {
 	for _, arg := range strings.Split(attr, ":") {
 		switch arg {
 		case "black":
@@ -214,7 +339,7 @@ func (box *Box) paramattr(attr string) (a term.Attribute) {
 	return a
 }
 
-func (box *Box) getparam(
+func boxgetparam(
 	params map[string]interface{}, key string, def interface{}) interface{} {
 
 	if val, ok := params[key]; ok {

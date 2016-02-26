@@ -2,8 +2,8 @@ package v
 
 import term "github.com/prataprc/v/term"
 
-type Buffer interface {
-	Rangelines(from, to int) Lineiterator
+type Widget interface {
+	Render()
 }
 
 type Lineiterator interface {
